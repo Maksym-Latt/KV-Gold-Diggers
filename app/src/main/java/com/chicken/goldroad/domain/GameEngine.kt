@@ -15,7 +15,11 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlin.math.abs
+import kotlin.math.atan2
+import kotlin.math.cos
 import kotlin.math.max
+import kotlin.math.min
+import kotlin.math.sin
 import kotlin.math.sqrt
 
 enum class GameStatus {
@@ -33,7 +37,7 @@ data class Egg(
     var vy: Float,
     var angle: Float = 0f,
     var angularVelocity: Float = 0f,
-    val type: Int, // 1..6
+    val type: Int,
     var isActive: Boolean = true
 )
 
@@ -61,23 +65,7 @@ class GameEngine @Inject constructor(
     private val _gameState = MutableStateFlow(GameState())
     val gameState: StateFlow<GameState> = _gameState.asStateFlow()
 
-    // ---------------------------
-    // Physics tuning (realistic-ish)
-    // ---------------------------
-    private val gravityPxPerSec2 = 2600f          // px/s^2 (подбирай под размеры)
-    private val airDragPerSec = 0.35f             // 0..1 (сопротивление воздуха)
-    private val restitution = 0.06f               // 0..1 (почти без отскока)
-    private val groundFriction = 5.5f             // (скольжение по земле)
-    private val rollingFriction = 1.8f            // (затухание катания)
-    private val maxSpeed = 2400f                  // px/s safety clamp
-    private val wallRestitution = 0.08f
-
-    // ---------------------------
-    // Terrain
-    // ---------------------------
     var terrainBitmap: Bitmap? = null
-        private set
-
     private var terrainCanvas: Canvas? = null
 
     private val eraserPaint = Paint().apply {
@@ -89,23 +77,30 @@ class GameEngine @Inject constructor(
         isAntiAlias = true
     }
 
-    // ---------------------------
-    // Entities
-    // ---------------------------
     private val movingEggs = CopyOnWriteArrayList<Egg>()
     private val obstacles = CopyOnWriteArrayList<Obstacle>()
 
-    // ---------------------------
-    // Dimensions
-    // ---------------------------
     private var screenWidth = 0
     private var screenHeight = 0
+
     var basketRect = android.graphics.RectF()
 
-    // ---------------------------
-    // Config
-    // ---------------------------
     val eggRadius = 15f
+
+    private val gravity = 0.45f
+
+    private val airDrag = 0.995f
+
+    private val restitution = 0.05f
+
+    private val surfaceFriction = 0.88f
+
+    private val wallFriction = 0.92f
+
+    private val rollingFactor = 1.0f
+
+    private val collisionResolveIterations = 4
+    private val maxPushOutPerFrame = eggRadius * 1.25f
 
     fun initLevel(width: Int, height: Int, level: Int) {
         screenWidth = width
@@ -127,17 +122,12 @@ class GameEngine @Inject constructor(
         )
 
         movingEggs.clear()
-        spawnEggs(count = 25, startX = width / 2f, startY = 150f)
+        spawnEggs(25, width / 2f, 150f)
 
         obstacles.clear()
         generateObstacles(level, width, height)
 
-        _gameState.value = GameState(
-            level = level,
-            score = 0,
-            targetScore = 20 + (level * 10),
-            status = GameStatus.PLAYING
-        )
+        _gameState.value = GameState(level = level, score = 0, targetScore = 20 + (level * 10))
     }
 
     private fun spawnEggs(count: Int, startX: Float, startY: Float) {
@@ -145,13 +135,13 @@ class GameEngine @Inject constructor(
             movingEggs.add(
                 Egg(
                     id = System.nanoTime() + i,
-                    x = startX + Random.nextFloat() * 300f - 150f,
-                    y = startY + Random.nextFloat() * 100f - 50f,
-                    vx = Random.nextFloat() * 80f - 40f,     // px/s
-                    vy = Random.nextFloat() * 30f,           // px/s
+                    x = startX + Random.nextFloat() * 300 - 150,
+                    y = startY + Random.nextFloat() * 100 - 50,
+                    vx = Random.nextFloat() * 2 - 1,
+                    vy = 0f,
                     angle = Random.nextFloat() * 360f,
-                    angularVelocity = Random.nextFloat() * 60f - 30f, // deg/s
-                    type = Random.nextInt(1, 7)
+                    angularVelocity = Random.nextFloat() * 5 - 2.5f,
+                    type = Random.nextInt(1, 6)
                 )
             )
         }
@@ -162,8 +152,8 @@ class GameEngine @Inject constructor(
         repeat(count) {
             obstacles.add(
                 Obstacle(
-                    x = Random.nextFloat() * (w - 100f) + 50f,
-                    y = Random.nextFloat() * (h - 600f) + 300f,
+                    x = Random.nextFloat() * (w - 100) + 50,
+                    y = Random.nextFloat() * (h - 600) + 300,
                     radius = 40f + Random.nextFloat() * 30f,
                     type = ObstacleType.values().random()
                 )
@@ -176,163 +166,75 @@ class GameEngine @Inject constructor(
         terrainCanvas?.drawLine(start.x, start.y, end.x, end.y, eraserPaint)
     }
 
-    fun pause() {
-        if (_gameState.value.status == GameStatus.PLAYING) {
-            _gameState.value = _gameState.value.copy(status = GameStatus.PAUSED)
-        }
-    }
-
-    fun resume() {
-        if (_gameState.value.status == GameStatus.PAUSED) {
-            _gameState.value = _gameState.value.copy(status = GameStatus.PLAYING)
-        }
-    }
-
-    /**
-     * deltaTime: миллисекунды между кадрами
-     */
     fun update(deltaTime: Long) {
         if (_gameState.value.status != GameStatus.PLAYING) return
 
-        val dt = (deltaTime.coerceIn(1L, 33L)).toFloat() / 1000f // сек (стабилизация)
         var score = _gameState.value.score
 
         movingEggs.forEach { egg ->
             if (!egg.isActive) return@forEach
 
-            // ---------------------------
-            // Forces (air)
-            // ---------------------------
-            egg.vy += gravityPxPerSec2 * dt
+            egg.vy += gravity
 
-            val dragFactor = expDecay(airDragPerSec, dt) // ~e^(-k*dt)
-            egg.vx *= dragFactor
-            egg.vy *= dragFactor
+            egg.vx *= airDrag
+            egg.vy *= airDrag
 
-            // speed clamp (safety)
-            clampSpeed(egg)
+            var nextX = egg.x + egg.vx
+            var nextY = egg.y + egg.vy
 
-            // ---------------------------
-            // Integrate (predict)
-            // ---------------------------
-            var newX = egg.x + egg.vx * dt
-            var newY = egg.y + egg.vy * dt
+            val wallHit = resolveScreenBounds(egg, nextX, nextY).also {
+                nextX = it.first
+                nextY = it.second
+            }.third
 
-            // ---------------------------
-            // Wall collisions (left/right/top)
-            // ---------------------------
-            if (newX < eggRadius) {
-                newX = eggRadius
-                egg.vx = -egg.vx * wallRestitution
-            } else if (newX > screenWidth - eggRadius) {
-                newX = screenWidth - eggRadius
-                egg.vx = -egg.vx * wallRestitution
-            }
-            if (newY < eggRadius) {
-                newY = eggRadius
-                egg.vy = -egg.vy * wallRestitution
-            }
-
-            // ---------------------------
-            // Terrain collision + rolling/sliding
-            // ---------------------------
-            val contact = resolveTerrainContact(
-                x = newX,
-                y = newY,
+            val terrainResult = resolveTerrainCollision(
+                startX = nextX,
+                startY = nextY,
                 radius = eggRadius,
-                maxPushOutIters = 6
+                vx = egg.vx,
+                vy = egg.vy,
+                wallHit = wallHit
             )
 
-            if (contact.isTouchingGround) {
-                // Place egg on corrected position
-                newX = contact.correctedX
-                newY = contact.correctedY
+            nextX = terrainResult.x
+            nextY = terrainResult.y
+            egg.vx = terrainResult.vx
+            egg.vy = terrainResult.vy
 
-                // Split velocity into normal/tangent
-                val nx = contact.normalX
-                val ny = contact.normalY
+            egg.x = nextX
+            egg.y = nextY
 
-                val vn = egg.vx * nx + egg.vy * ny
-                val tx = -ny
-                val ty = nx
-                val vt = egg.vx * tx + egg.vy * ty
+            egg.angularVelocity = terrainResult.angularVelocity
+            egg.angle = normalizeAngle(egg.angle + egg.angularVelocity)
 
-                // If moving into ground => remove penetration velocity + small restitution
-                val newVn = if (vn < 0f) -vn * restitution else vn
-                // Tangential friction (Coulomb-like, but stable)
-                val frictionDecel = groundFriction * gravityPxPerSec2 * dt * 0.0008f * 1000f
-                val vtAfter =
-                    if (abs(vt) <= frictionDecel) 0f else (vt - sign(vt) * frictionDecel)
-
-                // Recompose velocity
-                egg.vx = tx * vtAfter + nx * newVn
-                egg.vy = ty * vtAfter + ny * newVn
-
-                // Rolling: angular vel tends to match ground tangential speed
-                val desiredOmega = -(vtAfter / max(eggRadius, 1f)) * (180f / Math.PI.toFloat()) // deg/s
-                egg.angularVelocity = lerp(egg.angularVelocity, desiredOmega, 0.18f)
-
-                // Rolling friction: gradually reduce angular velocity when almost stopped
-                val rollDamp = expDecay(rollingFriction, dt)
-                egg.angularVelocity *= rollDamp
-            } else {
-                // In air: keep spin (slightly damp)
-                egg.angularVelocity *= expDecay(0.5f, dt)
+            if (egg.y > screenHeight + 50) {
+                egg.isActive = false
             }
 
-            // ---------------------------
-            // Obstacles
-            // ---------------------------
             obstacles.forEach { obs ->
                 if (!egg.isActive) return@forEach
 
-                val dx = (newX - obs.x)
-                val dy = (newY - obs.y)
+                val dx = egg.x - obs.x
+                val dy = egg.y - obs.y
                 val dist = sqrt(dx * dx + dy * dy)
 
                 if (dist < obs.radius + eggRadius) {
                     when (obs.type) {
-                        ObstacleType.SPIKE, ObstacleType.HOLE -> {
-                            egg.isActive = false
-                        }
+                        ObstacleType.SPIKE, ObstacleType.HOLE -> egg.isActive = false
                         ObstacleType.STONE -> {
-                            // Push out + reflect a bit along normal
-                            val nx = if (dist > 0.001f) dx / dist else 1f
-                            val ny = if (dist > 0.001f) dy / dist else 0f
-                            val penetration = (obs.radius + eggRadius) - dist
-                            newX += nx * penetration
-                            newY += ny * penetration
-
-                            val vn = egg.vx * nx + egg.vy * ny
-                            if (vn < 0f) {
-                                egg.vx -= (1f + restitution) * vn * nx
-                                egg.vy -= (1f + restitution) * vn * ny
-                            }
+                            val ang = atan2(dy, dx)
+                            val speed = sqrt(egg.vx * egg.vx + egg.vy * egg.vy)
+                            val push = max(speed, 2f)
+                            egg.vx = cos(ang) * push * 0.6f
+                            egg.vy = sin(ang) * push * 0.6f
                         }
                     }
                 }
             }
 
-            // ---------------------------
-            // Basket
-            // ---------------------------
-            if (egg.isActive && basketRect.contains(newX, newY)) {
+            if (egg.isActive && basketRect.contains(egg.x, egg.y)) {
                 egg.isActive = false
                 score++
-            }
-
-            // ---------------------------
-            // Commit position + rotation
-            // ---------------------------
-            egg.x = newX
-            egg.y = newY
-            egg.angle = wrapAngle(egg.angle + egg.angularVelocity * dt)
-
-            // ---------------------------
-            // Death (fell out)
-            // ---------------------------
-            if (egg.y > screenHeight + 200f) {
-                egg.isActive = false
             }
         }
 
@@ -347,107 +249,161 @@ class GameEngine @Inject constructor(
         )
     }
 
-    // ---------------------------
-    // Terrain helpers
-    // ---------------------------
+    private data class BoundsResolveResult(val x: Float, val y: Float, val hitWall: Boolean)
 
-    private data class TerrainContact(
-        val isTouchingGround: Boolean,
-        val correctedX: Float,
-        val correctedY: Float,
-        val normalX: Float,
-        val normalY: Float
+    private fun resolveScreenBounds(egg: Egg, x: Float, y: Float): Triple<Float, Float, Boolean> {
+        var nx = x
+        var ny = y
+        var hit = false
+
+        if (nx < eggRadius) {
+            nx = eggRadius
+            egg.vx = -egg.vx * restitution
+            hit = true
+        } else if (nx > screenWidth - eggRadius) {
+            nx = screenWidth - eggRadius
+            egg.vx = -egg.vx * restitution
+            hit = true
+        }
+
+        if (ny < eggRadius) {
+            ny = eggRadius
+            egg.vy = -egg.vy * restitution
+        }
+
+        return Triple(nx, ny, hit)
+    }
+
+    private data class TerrainResolveResult(
+        val x: Float,
+        val y: Float,
+        val vx: Float,
+        val vy: Float,
+        val angularVelocity: Float
     )
 
-    /**
-     * 1) Быстро проверяем касание (по окружности),
-     * 2) если есть контакт — ищем нормаль по градиенту "плотности" вокруг точки,
-     * 3) выталкиваем яйцо по нормали несколькими итерациями (стабильнее, чем "newY=oldY").
-     */
-    private fun resolveTerrainContact(
-        x: Float,
-        y: Float,
+    private fun resolveTerrainCollision(
+        startX: Float,
+        startY: Float,
         radius: Float,
-        maxPushOutIters: Int
-    ): TerrainContact {
-        val bmp = terrainBitmap ?: return TerrainContact(false, x, y, 0f, -1f)
-
-        // Quick contact test (multi-sample)
-        if (!checkTerrainCollision(x, y, radius)) {
-            return TerrainContact(false, x, y, 0f, -1f)
+        vx: Float,
+        vy: Float,
+        wallHit: Boolean
+    ): TerrainResolveResult {
+        if (terrainBitmap == null) {
+            return TerrainResolveResult(startX, startY, vx, vy, angularVelocity = 0f)
         }
 
-        // Compute normal by sampling density around center (like a tiny SDF-ish gradient)
-        val (nx0, ny0) = estimateTerrainNormal(bmp, x, y)
-        var nx = nx0
-        var ny = ny0
-        val nLen = sqrt(nx * nx + ny * ny)
-        if (nLen < 0.0001f) {
-            // Fallback: push up
-            nx = 0f
-            ny = -1f
+        var px = startX
+        var py = startY
+
+        var cvx = vx
+        var cvy = vy
+
+        var normalX = 0f
+        var normalY = 0f
+
+        var collided = false
+
+        var pushedTotal = 0f
+
+        repeat(collisionResolveIterations) {
+            if (!checkTerrainCollision(px, py, radius)) return@repeat
+
+            collided = true
+
+            val n = estimateCollisionNormal(px, py, radius)
+            if (n.first == 0f && n.second == 0f) return@repeat
+
+            normalX = n.first
+            normalY = n.second
+
+            val pushStep = min(radius * 0.35f, maxPushOutPerFrame - pushedTotal)
+            if (pushStep <= 0f) return@repeat
+
+            px += normalX * pushStep
+            py += normalY * pushStep
+            pushedTotal += pushStep
+        }
+
+        if (!collided) {
+            return TerrainResolveResult(px, py, cvx, cvy, angularVelocity = cvx * 0f)
+        }
+
+        val vn = cvx * normalX + cvy * normalY
+
+        val tx = -normalY
+        val ty = normalX
+        val vt = cvx * tx + cvy * ty
+
+        if (vn < 0f) {
+            val newVn = -vn * restitution
+
+            val frictionK = if (wallHit || abs(normalX) > 0.6f) wallFriction else surfaceFriction
+            val newVt = vt * frictionK
+
+            cvx = tx * newVt + normalX * newVn
+            cvy = ty * newVt + normalY * newVn
         } else {
-            nx /= nLen
-            ny /= nLen
+            val frictionK = if (wallHit || abs(normalX) > 0.6f) wallFriction else surfaceFriction
+            val newVt = vt * frictionK
+            cvx = tx * newVt + normalX * vn
+            cvy = ty * newVt + normalY * vn
         }
 
-        var cx = x
-        var cy = y
+        val angularVel = -(vt / max(radius, 1f)) * 57.29578f * rollingFactor
 
-        // Push out iteratively
-        repeat(maxPushOutIters) {
-            if (!checkTerrainCollision(cx, cy, radius)) return@repeat
-            cx += nx * 2.2f
-            cy += ny * 2.2f
-        }
+        return TerrainResolveResult(px, py, cvx, cvy, angularVel)
+    }
 
-        val touching = checkTerrainCollision(cx, cy, radius)
-        // If still colliding, brute push up as last resort
-        if (touching) {
-            var py = cy
-            repeat(18) {
-                if (!checkTerrainCollision(cx, py, radius)) {
-                    cy = py
-                    return@repeat
-                }
-                py -= 2f
+    private fun estimateCollisionNormal(x: Float, y: Float, radius: Float): Pair<Float, Float> {
+        val dirs = listOf(
+            Pair(1f, 0f),
+            Pair(-1f, 0f),
+            Pair(0f, 1f),
+            Pair(0f, -1f),
+            Pair(0.7071f, 0.7071f),
+            Pair(-0.7071f, 0.7071f),
+            Pair(0.7071f, -0.7071f),
+            Pair(-0.7071f, -0.7071f)
+        )
+
+        var ax = 0f
+        var ay = 0f
+        var hits = 0
+
+        for (d in dirs) {
+            val sx = (x + d.first * radius).toInt()
+            val sy = (y + d.second * radius).toInt()
+            if (isTerrainSolid(sx, sy)) {
+                ax -= d.first
+                ay -= d.second
+                hits++
             }
         }
 
-        return TerrainContact(
-            isTouchingGround = true,
-            correctedX = cx,
-            correctedY = cy,
-            normalX = nx,
-            normalY = ny
-        )
+        if (hits == 0) return 0f to 0f
+
+        val len = sqrt(ax * ax + ay * ay)
+        if (len < 0.0001f) return 0f to 0f
+
+        return (ax / len) to (ay / len)
     }
 
-    private fun estimateTerrainNormal(bmp: Bitmap, x: Float, y: Float): Pair<Float, Float> {
-        // Sample "solidness" around point; solid => 1, empty => 0
-        val step = 6
-        val cx = x.toInt()
-        val cy = y.toInt()
-
-        val left = solid01(bmp, cx - step, cy)
-        val right = solid01(bmp, cx + step, cy)
-        val up = solid01(bmp, cx, cy - step)
-        val down = solid01(bmp, cx, cy + step)
-
-        // Gradient points toward increasing solidness, we want push OUT of solid => invert
-        val gx = (right - left)
-        val gy = (down - up)
-
-        return Pair(-gx, -gy)
+    private fun normalizeAngle(a: Float): Float {
+        var v = a % 360f
+        if (v < 0f) v += 360f
+        return v
     }
 
-    private fun solid01(bmp: Bitmap, x: Int, y: Int): Float {
-        if (x < 0 || x >= screenWidth || y < 0 || y >= screenHeight) return 0f
+    private fun isTerrainSolid(x: Int, y: Int): Boolean {
+        val bmp = terrainBitmap ?: return false
+        if (x < 0 || x >= screenWidth || y < 0 || y >= screenHeight) return false
         return try {
             val pixel = bmp.getPixel(x, y)
-            if ((pixel ushr 24) > 0) 1f else 0f
-        } catch (_: Throwable) {
-            0f
+            (pixel ushr 24) > 0
+        } catch (_: Exception) {
+            false
         }
     }
 
@@ -455,55 +411,40 @@ class GameEngine @Inject constructor(
         val bmp = terrainBitmap ?: return false
 
         val points = listOf(
+            Offset(0f, 0f),
             Offset(0f, radius),
-            Offset(radius * 0.85f, radius * 0.35f),
-            Offset(-radius * 0.85f, radius * 0.35f),
+            Offset(0f, -radius),
             Offset(radius, 0f),
             Offset(-radius, 0f),
-            Offset(0f, 0f)
+            Offset(radius * 0.7f, radius * 0.7f),
+            Offset(-radius * 0.7f, radius * 0.7f),
+            Offset(radius * 0.7f, -radius * 0.7f),
+            Offset(-radius * 0.7f, -radius * 0.7f)
         )
 
         for (p in points) {
-            val px = (x + p.x).toInt()
-            val py = (y + p.y).toInt()
-            if (px < 0 || px >= screenWidth || py < 0 || py >= screenHeight) continue
+            val cx = (x + p.x).toInt()
+            val cy = (y + p.y).toInt()
+            if (cx !in 0 until screenWidth || cy !in 0 until screenHeight) continue
 
             try {
-                val pixel = bmp.getPixel(px, py)
+                val pixel = bmp.getPixel(cx, cy)
                 if ((pixel ushr 24) > 0) return true
-            } catch (_: Throwable) {
-                // ignore
+            } catch (_: Exception) {
             }
         }
         return false
     }
 
-    // ---------------------------
-    // Small math helpers
-    // ---------------------------
-
-    private fun clampSpeed(egg: Egg) {
-        val v2 = egg.vx * egg.vx + egg.vy * egg.vy
-        val maxV2 = maxSpeed * maxSpeed
-        if (v2 > maxV2) {
-            val k = maxSpeed / sqrt(v2)
-            egg.vx *= k
-            egg.vy *= k
+    fun pause() {
+        if (_gameState.value.status == GameStatus.PLAYING) {
+            _gameState.value = _gameState.value.copy(status = GameStatus.PAUSED)
         }
     }
 
-    private fun expDecay(k: Float, dt: Float): Float {
-        // ~ e^(-k*dt) but cheap and stable
-        return 1f / (1f + k * dt)
-    }
-
-    private fun lerp(a: Float, b: Float, t: Float): Float = a + (b - a) * t
-
-    private fun sign(v: Float): Float = if (v >= 0f) 1f else -1f
-
-    private fun wrapAngle(a: Float): Float {
-        var v = a % 360f
-        if (v < 0f) v += 360f
-        return v
+    fun resume() {
+        if (_gameState.value.status == GameStatus.PAUSED) {
+            _gameState.value = _gameState.value.copy(status = GameStatus.PLAYING)
+        }
     }
 }
