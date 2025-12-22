@@ -37,7 +37,8 @@ data class Egg(
     var angle: Float = 0f,
     var angularVelocity: Float = 0f,
     val type: Int,
-    var isActive: Boolean = true
+    var isActive: Boolean = true,
+    var sleepFrames: Int = 0
 )
 
 data class Obstacle(val x: Float, val y: Float, val radius: Float, val type: ObstacleType)
@@ -94,19 +95,43 @@ class GameEngine @Inject constructor(
     private val wallFriction = 0.92f
     private val rollingFactor = 1.0f
 
-    private val collisionResolveIterations = 5
-    private val maxPushOutPerFrame = eggRadius * 1.35f
+    private val collisionResolveIterations = 9
+    private val maxPushOutPerFrame = eggRadius * 3.5f
 
-    private val eggCollisionIterations = 5
+    private val eggCollisionIterations = 6
     private val eggRestitution = 0.08f
     private val eggTangentialFriction = 0.90f
     private val eggMaxImpulse = 1.8f
-    private val eggPositionSlop = 0.02f
-    private val eggSeparationBias = 0.72f
+    private val eggPositionSlop = 0.35f
+    private val eggSeparationBias = 0.65f
 
-    private val settleNormalVelEps = 0.02f
-    private val sleepVelEps = 0.06f
-    private val sleepSpinEps = 0.25f
+    private val solvePasses = 3
+
+    private val sleepSpeed = 0.05f
+    private val sleepAngular = 0.4f
+    private val sleepFramesToLock = 10
+
+    private val tinyVel = 0.02f
+    private val tinyAng = 0.25f
+
+    private val normalDirs = floatArrayOf(
+        1f, 0f,
+        -1f, 0f,
+        0f, 1f,
+        0f, -1f,
+        0.7071f, 0.7071f,
+        -0.7071f, 0.7071f,
+        0.7071f, -0.7071f,
+        -0.7071f, -0.7071f,
+        0.3827f, 0.9239f,
+        -0.3827f, 0.9239f,
+        0.3827f, -0.9239f,
+        -0.3827f, -0.9239f,
+        0.9239f, 0.3827f,
+        -0.9239f, 0.3827f,
+        0.9239f, -0.3827f,
+        -0.9239f, -0.3827f
+    )
 
     fun initLevel(width: Int, height: Int, level: Int) {
         screenWidth = width
@@ -170,6 +195,7 @@ class GameEngine @Inject constructor(
     fun dig(start: Offset, end: Offset) {
         if (_gameState.value.status != GameStatus.PLAYING) return
         terrainCanvas?.drawLine(start.x, start.y, end.x, end.y, eraserPaint)
+        movingEggs.forEach { it.sleepFrames = 0 }
     }
 
     fun update(deltaTime: Long) {
@@ -180,17 +206,18 @@ class GameEngine @Inject constructor(
         movingEggs.forEach { egg ->
             if (!egg.isActive) return@forEach
 
-            if (!egg.x.isFinite() || !egg.y.isFinite() || !egg.vx.isFinite() || !egg.vy.isFinite()) {
-                egg.x = (screenWidth * 0.5f).coerceIn(eggRadius, screenWidth - eggRadius)
-                egg.y = (eggRadius + 5f).coerceIn(eggRadius, screenHeight - eggRadius)
+            val speedSq = egg.vx * egg.vx + egg.vy * egg.vy
+            val inSleepBand = speedSq < (sleepSpeed * sleepSpeed) && abs(egg.angularVelocity) < sleepAngular
+
+            if (egg.sleepFrames >= sleepFramesToLock && inSleepBand) {
                 egg.vx = 0f
                 egg.vy = 0f
                 egg.angularVelocity = 0f
+            } else {
+                egg.vy += gravity
+                egg.vx *= airDrag
+                egg.vy *= airDrag
             }
-
-            egg.vy += gravity
-            egg.vx *= airDrag
-            egg.vy *= airDrag
 
             var nextX = egg.x + egg.vx
             var nextY = egg.y + egg.vy
@@ -213,22 +240,51 @@ class GameEngine @Inject constructor(
             egg.y = terrainResult.y
             egg.vx = terrainResult.vx
             egg.vy = terrainResult.vy
-
             egg.angularVelocity = terrainResult.angularVelocity
+
             egg.angle = normalizeAngle(egg.angle + egg.angularVelocity)
 
-            if (egg.y > screenHeight + 50) {
-                egg.isActive = false
+            if (abs(egg.vx) < tinyVel) egg.vx = 0f
+            if (abs(egg.vy) < tinyVel) egg.vy = 0f
+            if (abs(egg.angularVelocity) < tinyAng) egg.angularVelocity = 0f
+
+            if (egg.y > screenHeight + 2000f) {
+                egg.y = screenHeight - eggRadius
+                egg.vy = 0f
+                egg.vx = 0f
+                egg.angularVelocity = 0f
+                egg.sleepFrames = sleepFramesToLock
             }
+
+            val postSpeedSq = egg.vx * egg.vx + egg.vy * egg.vy
+            val postSleepBand = postSpeedSq < (sleepSpeed * sleepSpeed) && abs(egg.angularVelocity) < sleepAngular
+            egg.sleepFrames = if (postSleepBand) min(egg.sleepFrames + 1, sleepFramesToLock) else 0
         }
 
-        resolveEggCollisions()
-
-        movingEggs.forEach { egg ->
-            if (!egg.isActive) return@forEach
-            enforceNotInsideTerrain(egg)
-            resolveScreenBounds(egg, egg.x, egg.y)
-            settleIfOnSurface(egg)
+        repeat(solvePasses) {
+            resolveEggCollisionsOnce()
+            movingEggs.forEach { egg ->
+                if (!egg.isActive) return@forEach
+                val wallHit = resolveScreenBoundsNoBounce(egg)
+                val settled = resolveTerrainCollision(
+                    startX = egg.x,
+                    startY = egg.y,
+                    radius = eggRadius,
+                    vx = egg.vx,
+                    vy = egg.vy,
+                    wallHit = wallHit
+                )
+                egg.x = settled.x
+                egg.y = settled.y
+                egg.vx = settled.vx
+                egg.vy = settled.vy
+                if (egg.sleepFrames >= sleepFramesToLock) {
+                    egg.vx = 0f
+                    egg.vy = 0f
+                    egg.angularVelocity = 0f
+                }
+                clampToScreen(egg)
+            }
         }
 
         movingEggs.forEach { egg ->
@@ -250,6 +306,7 @@ class GameEngine @Inject constructor(
                             val push = max(speed, 2f)
                             egg.vx = cos(ang) * push * 0.6f
                             egg.vy = sin(ang) * push * 0.6f
+                            egg.sleepFrames = 0
                         }
                     }
                 }
@@ -261,7 +318,8 @@ class GameEngine @Inject constructor(
             }
         }
 
-        val newStatus = if (score >= _gameState.value.targetScore) GameStatus.WON else GameStatus.PLAYING
+        val newStatus =
+            if (score >= _gameState.value.targetScore) GameStatus.WON else GameStatus.PLAYING
 
         _gameState.value = _gameState.value.copy(
             score = score,
@@ -271,7 +329,7 @@ class GameEngine @Inject constructor(
         )
     }
 
-    private fun resolveEggCollisions() {
+    private fun resolveEggCollisionsOnce() {
         val active = movingEggs.filter { it.isActive }
         if (active.size < 2) return
 
@@ -287,7 +345,6 @@ class GameEngine @Inject constructor(
                     val dx = b.x - a.x
                     val dy = b.y - a.y
                     val distSq = dx * dx + dy * dy
-
                     if (distSq >= minDistSq) continue
 
                     val dist = sqrt(max(distSq, 0.0001f))
@@ -303,21 +360,21 @@ class GameEngine @Inject constructor(
                         b.y += ny * push
                         clampToScreen(a)
                         clampToScreen(b)
+                        a.sleepFrames = 0
+                        b.sleepFrames = 0
                     }
 
                     val rvx = b.vx - a.vx
                     val rvy = b.vy - a.vy
                     val velAlongNormal = rvx * nx + rvy * ny
-
                     if (velAlongNormal > 0f) continue
 
                     val e = eggRestitution
-                    var jImpulse = -(1f + e) * velAlongNormal * 0.5f
-                    jImpulse = jImpulse.coerceIn(0f, eggMaxImpulse)
+                    var jImpulse = -(1f + e) * velAlongNormal / 2f
+                    jImpulse = jImpulse.coerceIn(-eggMaxImpulse, eggMaxImpulse)
 
                     val ix = jImpulse * nx
                     val iy = jImpulse * ny
-
                     a.vx -= ix
                     a.vy -= iy
                     b.vx += ix
@@ -327,64 +384,17 @@ class GameEngine @Inject constructor(
                     val ty = nx
                     val velAlongTangent = rvx * tx + rvy * ty
 
-                    val jt = velAlongTangent * 0.5f * (1f - eggTangentialFriction)
+                    val jt = (velAlongTangent / 2f) * (1f - eggTangentialFriction)
                     a.vx += tx * jt
                     a.vy += ty * jt
                     b.vx -= tx * jt
                     b.vy -= ty * jt
 
                     val spin = -(velAlongTangent / max(eggRadius, 1f)) * 57.29578f * 0.25f
-                    a.angularVelocity += spin * 0.5f
-                    b.angularVelocity -= spin * 0.5f
+                    a.angularVelocity = a.angularVelocity + spin * 0.5f
+                    b.angularVelocity = b.angularVelocity - spin * 0.5f
                 }
             }
-        }
-    }
-
-    private fun enforceNotInsideTerrain(egg: Egg) {
-        val bmp = terrainBitmap ?: return
-        if (!checkTerrainCollision(egg.x, egg.y, eggRadius)) return
-
-        var px = egg.x
-        var py = egg.y
-        var pushed = 0f
-
-        repeat(collisionResolveIterations + 2) {
-            if (!checkTerrainCollision(px, py, eggRadius)) return@repeat
-
-            val n = estimateCollisionNormal(px, py, eggRadius)
-            val nx = n.first
-            val ny = n.second
-            if (nx == 0f && ny == 0f) return@repeat
-
-            val step = min(eggRadius * 0.30f, maxPushOutPerFrame - pushed)
-            if (step <= 0f) return@repeat
-
-            px += nx * step
-            py += ny * step
-            pushed += step
-        }
-
-        egg.x = px
-        egg.y = py
-        clampToScreen(egg)
-    }
-
-    private fun settleIfOnSurface(egg: Egg) {
-        if (terrainBitmap == null) return
-
-        val onSurface = isTerrainSolid(egg.x.toInt(), (egg.y + eggRadius + 1f).toInt()) ||
-                isTerrainSolid((egg.x + eggRadius * 0.7f).toInt(), (egg.y + eggRadius + 1f).toInt()) ||
-                isTerrainSolid((egg.x - eggRadius * 0.7f).toInt(), (egg.y + eggRadius + 1f).toInt())
-
-        if (!onSurface) return
-
-        if (abs(egg.vy) < settleNormalVelEps) egg.vy = 0f
-
-        if (abs(egg.vx) < sleepVelEps && abs(egg.vy) < sleepVelEps) {
-            egg.vx = 0f
-            egg.vy = 0f
-            if (abs(egg.angularVelocity) < sleepSpinEps) egg.angularVelocity = 0f
         }
     }
 
@@ -402,21 +412,43 @@ class GameEngine @Inject constructor(
             nx = eggRadius
             egg.vx = -egg.vx * restitution
             hit = true
+            egg.sleepFrames = 0
         } else if (nx > screenWidth - eggRadius) {
             nx = screenWidth - eggRadius
             egg.vx = -egg.vx * restitution
             hit = true
+            egg.sleepFrames = 0
         }
 
         if (ny < eggRadius) {
             ny = eggRadius
             egg.vy = -egg.vy * restitution
+            egg.sleepFrames = 0
         }
 
-        egg.x = nx
-        egg.y = ny
-
         return Triple(nx, ny, hit)
+    }
+
+    private fun resolveScreenBoundsNoBounce(egg: Egg): Boolean {
+        var hit = false
+        if (egg.x < eggRadius) {
+            egg.x = eggRadius
+            if (egg.vx < 0f) egg.vx = 0f
+            hit = true
+        } else if (egg.x > screenWidth - eggRadius) {
+            egg.x = screenWidth - eggRadius
+            if (egg.vx > 0f) egg.vx = 0f
+            hit = true
+        }
+        if (egg.y < eggRadius) {
+            egg.y = eggRadius
+            if (egg.vy < 0f) egg.vy = 0f
+        }
+        if (egg.y > screenHeight - eggRadius) {
+            egg.y = screenHeight - eggRadius
+            if (egg.vy > 0f) egg.vy = 0f
+        }
+        return hit
     }
 
     private data class TerrainResolveResult(
@@ -452,13 +484,13 @@ class GameEngine @Inject constructor(
 
             collided = true
 
-            val n = estimateCollisionNormal(px, py, radius)
+            val n = estimateCollisionNormal(px, py, radius, bmp)
             if (n.first == 0f && n.second == 0f) return@repeat
 
             normalX = n.first
             normalY = n.second
 
-            val pushStep = min(radius * 0.33f, maxPushOutPerFrame - pushedTotal)
+            val pushStep = min(radius * 0.55f, maxPushOutPerFrame - pushedTotal)
             if (pushStep <= 0f) return@repeat
 
             px += normalX * pushStep
@@ -466,7 +498,9 @@ class GameEngine @Inject constructor(
             pushedTotal += pushStep
         }
 
-        if (!collided) return TerrainResolveResult(px, py, cvx, cvy, 0f)
+        if (!collided) {
+            return TerrainResolveResult(px, py, cvx, cvy, 0f)
+        }
 
         val vn = cvx * normalX + cvy * normalY
         val tx = -normalY
@@ -475,42 +509,52 @@ class GameEngine @Inject constructor(
 
         val frictionK = if (wallHit || abs(normalX) > 0.6f) wallFriction else surfaceFriction
 
-        val finalVn = if (vn < 0f) -vn * restitution else vn
-        val finalVt = vt * frictionK
+        if (vn < 0f) {
+            val newVn = if (abs(vn) < 0.10f) 0f else -vn * restitution
+            val newVt = vt * frictionK
+            cvx = tx * newVt + normalX * newVn
+            cvy = ty * newVt + normalY * newVn
+        } else {
+            val newVt = vt * frictionK
+            cvx = tx * newVt + normalX * vn
+            cvy = ty * newVt + normalY * vn
+        }
 
-        cvx = tx * finalVt + normalX * finalVn
-        cvy = ty * finalVt + normalY * finalVn
-
-        if (abs(vn) < settleNormalVelEps) cvy = min(cvy, 0f)
-
-        val angularVel = -(finalVt / max(radius, 1f)) * 57.29578f * rollingFactor
+        val angularVel = -(vt / max(radius, 1f)) * 57.29578f * rollingFactor
         return TerrainResolveResult(px, py, cvx, cvy, angularVel)
     }
 
-    private fun estimateCollisionNormal(x: Float, y: Float, radius: Float): Pair<Float, Float> {
-        val dirs = listOf(
-            1f to 0f,
-            -1f to 0f,
-            0f to 1f,
-            0f to -1f,
-            0.7071f to 0.7071f,
-            -0.7071f to 0.7071f,
-            0.7071f to -0.7071f,
-            -0.7071f to -0.7071f
-        )
-
+    private fun estimateCollisionNormal(
+        x: Float,
+        y: Float,
+        radius: Float,
+        bmp: Bitmap
+    ): Pair<Float, Float> {
         var ax = 0f
         var ay = 0f
         var hits = 0
 
-        for (d in dirs) {
-            val sx = (x + d.first * radius).toInt()
-            val sy = (y + d.second * radius).toInt()
-            if (isTerrainSolid(sx, sy)) {
-                ax -= d.first
-                ay -= d.second
-                hits++
+        var i = 0
+        while (i < normalDirs.size) {
+            val dx = normalDirs[i]
+            val dy = normalDirs[i + 1]
+            val sx = (x + dx * radius).toInt()
+            val sy = (y + dy * radius).toInt()
+
+            if (sx in 0 until screenWidth && sy in 0 until screenHeight) {
+                val solid = try {
+                    val pixel = bmp.getPixel(sx, sy)
+                    (pixel ushr 24) > 0
+                } catch (_: Exception) {
+                    false
+                }
+                if (solid) {
+                    ax -= dx
+                    ay -= dy
+                    hits++
+                }
             }
+            i += 2
         }
 
         if (hits == 0) return 0f to 0f
@@ -541,28 +585,36 @@ class GameEngine @Inject constructor(
     private fun checkTerrainCollision(x: Float, y: Float, radius: Float): Boolean {
         val bmp = terrainBitmap ?: return false
 
-        val points = listOf(
-            Offset(0f, 0f),
-            Offset(0f, radius),
-            Offset(0f, -radius),
-            Offset(radius, 0f),
-            Offset(-radius, 0f),
-            Offset(radius * 0.7f, radius * 0.7f),
-            Offset(-radius * 0.7f, radius * 0.7f),
-            Offset(radius * 0.7f, -radius * 0.7f),
-            Offset(-radius * 0.7f, -radius * 0.7f)
+        val points = floatArrayOf(
+            0f, 0f,
+            0f, radius,
+            0f, -radius,
+            radius, 0f,
+            -radius, 0f,
+            radius * 0.7f, radius * 0.7f,
+            -radius * 0.7f, radius * 0.7f,
+            radius * 0.7f, -radius * 0.7f,
+            -radius * 0.7f, -radius * 0.7f,
+            radius * 0.92f, radius * 0.38f,
+            -radius * 0.92f, radius * 0.38f,
+            radius * 0.92f, -radius * 0.38f,
+            -radius * 0.92f, -radius * 0.38f
         )
 
-        for (p in points) {
-            val cx = (x + p.x).toInt()
-            val cy = (y + p.y).toInt()
-            if (cx !in 0 until screenWidth || cy !in 0 until screenHeight) continue
-
-            try {
-                val pixel = bmp.getPixel(cx, cy)
-                if ((pixel ushr 24) > 0) return true
-            } catch (_: Exception) {
+        var i = 0
+        while (i < points.size) {
+            val cx = (x + points[i]).toInt()
+            val cy = (y + points[i + 1]).toInt()
+            if (cx in 0 until screenWidth && cy in 0 until screenHeight) {
+                val solid = try {
+                    val pixel = bmp.getPixel(cx, cy)
+                    (pixel ushr 24) > 0
+                } catch (_: Exception) {
+                    false
+                }
+                if (solid) return true
             }
+            i += 2
         }
         return false
     }
