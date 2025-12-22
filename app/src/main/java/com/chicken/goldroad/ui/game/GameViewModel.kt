@@ -15,10 +15,15 @@ class GameViewModel @Inject constructor(val gameEngine: GameEngine) : ViewModel(
     val gameState = gameEngine.gameState
     private var gameLoopRunning = false
 
-    fun startGame(width: Int, height: Int) {
-        if (gameEngine.gameState.value.level == 1 && gameEngine.gameState.value.eggs.isEmpty()) {
-            gameEngine.initLevel(width, height, 1)
-        }
+    fun startLevel(
+            width: Int,
+            height: Int,
+            bgBitmaps: List<android.graphics.Bitmap>,
+            next: Boolean = false
+    ) {
+        val currentLevel = gameEngine.gameState.value.level
+        val targetLevel = if (next) currentLevel + 1 else currentLevel
+        gameEngine.initLevel(width, height, targetLevel, bgBitmaps)
         startGameLoop()
     }
 

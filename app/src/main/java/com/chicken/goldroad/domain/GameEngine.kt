@@ -26,6 +26,8 @@ enum class GameStatus {
     LOST
 }
 
+data class TerrainChunk(val topY: Float, val height: Float, val bitmap: Bitmap, val canvas: Canvas)
+
 data class Egg(
         val id: Long,
         var x: Float,
@@ -68,8 +70,8 @@ class GameEngine @Inject constructor(private val soundManager: SoundManager) {
     private var lastDigTime = 0L
     private val digThrottleMs = 16L // Max 60 dig operations per second
 
-    var terrainBitmap: Bitmap? = null
-    private var terrainCanvas: Canvas? = null
+    val terrainChunks = mutableListOf<TerrainChunk>()
+    private val chunkSize = 1000f // Vertical height of one chunk
 
     // Optimization: Downsampled ByteArray collision mask
     private val collisionScale = 2
@@ -172,7 +174,7 @@ class GameEngine @Inject constructor(private val soundManager: SoundManager) {
                     -0.3827f
             )
 
-    fun initLevel(width: Int, height: Int, level: Int) {
+    fun initLevel(width: Int, height: Int, level: Int, bgBitmaps: List<Bitmap>) {
         screenWidth = width
         screenHeight = height
         worldHeight = height * 5
@@ -181,16 +183,44 @@ class GameEngine @Inject constructor(private val soundManager: SoundManager) {
         val targetScore = 20 + (level * 10)
         val totalEggs = targetScore * 2
 
-        terrainBitmap = Bitmap.createBitmap(width, worldHeight, Bitmap.Config.ARGB_8888)
-        terrainCanvas = Canvas(terrainBitmap!!)
+        // Initialize chunks
+        terrainChunks.forEach { it.bitmap.recycle() }
+        terrainChunks.clear()
+
+        val numChunks =
+                (worldHeight / chunkSize.toInt()) +
+                        (if (worldHeight % chunkSize.toInt() > 0) 1 else 0)
+
+        for (i in 0 until numChunks) {
+            val topY = i * chunkSize
+            val chunkH =
+                    if (i == numChunks - 1) {
+                        (worldHeight - topY).coerceAtLeast(1f)
+                    } else {
+                        chunkSize
+                    }
+
+            val bmp = Bitmap.createBitmap(width, chunkH.toInt(), Bitmap.Config.ARGB_8888)
+            val canvas = Canvas(bmp)
+
+            // Draw random background from provided list
+            val bg = if (bgBitmaps.isNotEmpty()) bgBitmaps.random() else null
+            if (bg != null) {
+                val src = android.graphics.Rect(0, 0, bg.width, bg.height)
+                val dest = android.graphics.Rect(0, 0, width, chunkH.toInt())
+                canvas.drawBitmap(bg, src, dest, null)
+            } else {
+                val dirtColor = android.graphics.Color.parseColor("#8D6E63")
+                canvas.drawColor(dirtColor)
+            }
+
+            terrainChunks.add(TerrainChunk(topY, chunkH, bmp, canvas))
+        }
 
         // Initialize collision mask (downsampled)
         maskWidth = width / collisionScale
         maskHeight = worldHeight / collisionScale
         collisionMask = ByteArray(maskWidth * maskHeight) { 1 } // 1 = solid
-
-        val dirtColor = android.graphics.Color.parseColor("#8D6E63")
-        terrainCanvas?.drawColor(dirtColor)
 
         val basketW = 200f
         val basketH = 100f
@@ -230,10 +260,8 @@ class GameEngine @Inject constructor(private val soundManager: SoundManager) {
             val cx = Random.nextFloat() * (screenWidth - 200f) + 100f
             val cy = Random.nextFloat() * (maxY - minY) + minY
 
-            terrainCanvas?.drawCircle(cx, cy, 100f, fillEraserPaint)
-
             repeat(eggsPerCluster) { i ->
-                movingEggs.add(
+                val egg =
                         Egg(
                                 id = System.nanoTime() + i + Random.nextLong(),
                                 x = cx + Random.nextFloat() * 120 - 60,
@@ -244,7 +272,14 @@ class GameEngine @Inject constructor(private val soundManager: SoundManager) {
                                 angularVelocity = Random.nextFloat() * 5 - 2.5f,
                                 type = Random.nextInt(1, 6)
                         )
-                )
+                movingEggs.add(egg)
+            }
+
+            // Draw holes in relevant chunks
+            terrainChunks.forEach { chunk ->
+                if (cy + 100f > chunk.topY && cy - 100f < chunk.topY + chunk.height) {
+                    chunk.canvas.drawCircle(cx, cy - chunk.topY, 100f, fillEraserPaint)
+                }
             }
         }
     }
@@ -270,7 +305,19 @@ class GameEngine @Inject constructor(private val soundManager: SoundManager) {
         if (currentTime - lastDigTime < digThrottleMs) return
         lastDigTime = currentTime
 
-        terrainCanvas?.drawLine(start.x, start.y, end.x, end.y, eraserPaint)
+        // Update visual chunks
+        val strokeHalf = eraserPaint.strokeWidth / 2f
+        val minY = min(start.y, end.y) - strokeHalf
+        val maxY = max(start.y, end.y) + strokeHalf
+
+        terrainChunks.forEach { chunk ->
+            if (maxY > chunk.topY && minY < chunk.topY + chunk.height) {
+                chunk.canvas.save()
+                chunk.canvas.translate(0f, -chunk.topY)
+                chunk.canvas.drawLine(start.x, start.y, end.x, end.y, eraserPaint)
+                chunk.canvas.restore()
+            }
+        }
 
         // Update collision mask
         updateMaskForLine(start, end, 40f) // eraser strokeWidth/2 = 40
@@ -490,8 +537,8 @@ class GameEngine @Inject constructor(private val soundManager: SoundManager) {
                         val key = (gx + ox) * 10000 + (gy + oy)
                         val cellEggs = spatialGrid[key] ?: continue
 
-                        cellEggs.forEach { b ->
-                            if (a.id >= b.id) return@forEach // Only check pairs once
+                        cellEggs.forEach cellEggLoop@{ b ->
+                            if (a.id >= b.id) return@cellEggLoop // Only check pairs once
 
                             val aSleep = a.sleepFrames >= sleepFramesToLock
                             val bSleep = b.sleepFrames >= sleepFramesToLock
@@ -610,7 +657,6 @@ class GameEngine @Inject constructor(private val soundManager: SoundManager) {
             vy: Float,
             wallHit: Boolean
     ): TerrainResolveResult {
-        val bmp = terrainBitmap ?: return TerrainResolveResult(startX, startY, vx, vy, 0f)
 
         var px = startX
         var py = startY
@@ -627,7 +673,7 @@ class GameEngine @Inject constructor(private val soundManager: SoundManager) {
 
             collided = true
 
-            val n = estimateCollisionNormal(px, py, radius, bmp)
+            val n = estimateCollisionNormal(px, py, radius)
             if (n.first == 0f && n.second == 0f) return@repeat
 
             normalX = n.first
@@ -667,12 +713,7 @@ class GameEngine @Inject constructor(private val soundManager: SoundManager) {
         return TerrainResolveResult(px, py, cvx, cvy, angularVel)
     }
 
-    private fun estimateCollisionNormal(
-            x: Float,
-            y: Float,
-            radius: Float,
-            bmp: Bitmap
-    ): Pair<Float, Float> {
+    private fun estimateCollisionNormal(x: Float, y: Float, radius: Float): Pair<Float, Float> {
         var ax = 0f
         var ay = 0f
         var hits = 0

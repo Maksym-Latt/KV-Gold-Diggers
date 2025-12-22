@@ -1,9 +1,13 @@
 package com.chicken.goldroad.ui.game
 
+import android.graphics.BitmapFactory
+import android.graphics.RectF
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
 import androidx.compose.foundation.gestures.detectDragGestures
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
@@ -19,6 +23,7 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.drawscope.drawIntoCanvas
 import androidx.compose.ui.graphics.nativeCanvas
@@ -52,12 +57,25 @@ fun GameScreen(viewModel: GameViewModel = hiltViewModel(), onBack: () -> Unit) {
                         R.drawable.egg_4,
                         R.drawable.egg_5
                 )
-        eggs.map { id -> android.graphics.BitmapFactory.decodeResource(context.resources, id) }
+        eggs.map { id -> BitmapFactory.decodeResource(context.resources, id) }
     }
 
     // Load Basket Bitmap
     val basketBitmap = remember {
-        android.graphics.BitmapFactory.decodeResource(context.resources, R.drawable.basket_1)
+        BitmapFactory.decodeResource(context.resources, R.drawable.basket_1)
+    }
+
+    // Load Background Ground Bitmaps
+    val bgGroundBitmaps = remember {
+        listOf(
+                        R.drawable.bg_ground_1,
+                        R.drawable.bg_ground_2,
+                        R.drawable.bg_ground_3,
+                        R.drawable.bg_ground_4,
+                        R.drawable.bg_ground_5,
+                        R.drawable.bg_ground_6
+                )
+                .map { id -> BitmapFactory.decodeResource(context.resources, id) }
     }
 
     Box(modifier = Modifier.fillMaxSize()) {
@@ -67,7 +85,12 @@ fun GameScreen(viewModel: GameViewModel = hiltViewModel(), onBack: () -> Unit) {
                                 .onSizeChanged {
                                     if (screenSize == null) {
                                         screenSize = it.width to it.height
-                                        viewModel.startGame(it.width, it.height)
+                                        viewModel.startLevel(
+                                                it.width,
+                                                it.height,
+                                                bgGroundBitmaps,
+                                                next = false
+                                        )
                                     }
                                 }
                                 .pointerInput(Unit) {
@@ -75,11 +98,7 @@ fun GameScreen(viewModel: GameViewModel = hiltViewModel(), onBack: () -> Unit) {
                                         change.consume()
                                         val cameraY = viewModel.gameEngine.cameraY
                                         val start =
-                                                change.position - dragAmount +
-                                                        androidx.compose.ui.geometry.Offset(
-                                                                0f,
-                                                                cameraY
-                                                        )
+                                                change.position - dragAmount + Offset(0f, cameraY)
                                         val end =
                                                 change.position +
                                                         androidx.compose.ui.geometry.Offset(
@@ -99,8 +118,12 @@ fun GameScreen(viewModel: GameViewModel = hiltViewModel(), onBack: () -> Unit) {
                 nativeCanvas.save()
                 nativeCanvas.translate(0f, -cameraY)
 
-                viewModel.gameEngine.terrainBitmap?.let {
-                    nativeCanvas.drawBitmap(it, 0f, 0f, null)
+                val screenH = screenSize?.second?.toFloat() ?: 0f
+                viewModel.gameEngine.terrainChunks.forEach { chunk ->
+                    // Optimization: only draw if visible
+                    if (chunk.topY + chunk.height > cameraY && chunk.topY < cameraY + screenH) {
+                        nativeCanvas.drawBitmap(chunk.bitmap, 0f, chunk.topY, null)
+                    }
                 }
 
                 val basketRect = viewModel.gameEngine.basketRect
@@ -123,7 +146,7 @@ fun GameScreen(viewModel: GameViewModel = hiltViewModel(), onBack: () -> Unit) {
                     nativeCanvas.rotate(egg.angle, egg.x, egg.y)
 
                     val destRect =
-                            android.graphics.RectF(
+                            RectF(
                                     egg.x - eggRadius,
                                     egg.y - eggRadius,
                                     egg.x + eggRadius,
@@ -153,7 +176,11 @@ fun GameScreen(viewModel: GameViewModel = hiltViewModel(), onBack: () -> Unit) {
                     msg = "+${gameState.score} Points",
                     color = Color(0xFF4CAF50),
                     onMain = onBack,
-                    onAction = { /* Next Level logic */}
+                    onAction = {
+                        screenSize?.let {
+                            viewModel.startLevel(it.first, it.second, bgGroundBitmaps, next = true)
+                        }
+                    }
             )
         } else if (gameState.status == GameStatus.LOST) {
             Overlay(
@@ -161,7 +188,11 @@ fun GameScreen(viewModel: GameViewModel = hiltViewModel(), onBack: () -> Unit) {
                     msg = "Try again",
                     color = Color(0xFFFF9800),
                     onMain = onBack,
-                    onAction = { screenSize?.let { viewModel.startGame(it.first, it.second) } }
+                    onAction = {
+                        screenSize?.let {
+                            viewModel.startLevel(it.first, it.second, bgGroundBitmaps, next = false)
+                        }
+                    }
             )
         }
     }
@@ -173,13 +204,13 @@ fun Overlay(title: String, msg: String, color: Color, onMain: () -> Unit, onActi
             modifier = Modifier.fillMaxSize().background(Color.Black.copy(alpha = 0.5f)),
             contentAlignment = Alignment.Center
     ) {
-        androidx.compose.foundation.layout.Column(
+        Column(
                 horizontalAlignment = Alignment.CenterHorizontally,
                 modifier = Modifier.background(color).padding(32.dp)
         ) {
             Text(title, fontSize = 32.sp, color = Color.White)
             Text(msg, fontSize = 24.sp, color = Color.White)
-            androidx.compose.foundation.layout.Spacer(modifier = Modifier.size(16.dp))
+            Spacer(modifier = Modifier.size(16.dp))
             Button(onClick = onAction) { Text("Action") }
             Button(
                     onClick = onMain,
