@@ -11,11 +11,8 @@ import java.util.concurrent.CopyOnWriteArrayList
 import javax.inject.Inject
 import javax.inject.Singleton
 import kotlin.math.abs
-import kotlin.math.atan2
-import kotlin.math.cos
 import kotlin.math.max
 import kotlin.math.min
-import kotlin.math.sin
 import kotlin.math.sqrt
 import kotlin.random.Random
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -180,7 +177,7 @@ class GameEngine @Inject constructor(private val soundManager: SoundManager) {
         spawnEggs(25, width / 2f, 150f)
 
         obstacles.clear()
-        generateObstacles(level, width, height)
+        // generateObstacles(level, width, height)
 
         _gameState.value = GameState(level = level, score = 0, targetScore = 20 + (level * 10))
     }
@@ -360,6 +357,7 @@ class GameEngine @Inject constructor(private val soundManager: SoundManager) {
         movingEggs.forEach { egg ->
             if (!egg.isActive) return@forEach
 
+            /*
             obstacles.forEach obstacleLoop@{ obs ->
                 if (!egg.isActive) return@obstacleLoop
 
@@ -381,6 +379,7 @@ class GameEngine @Inject constructor(private val soundManager: SoundManager) {
                     }
                 }
             }
+            */
 
             if (egg.isActive && basketRect.contains(egg.x, egg.y)) {
                 egg.isActive = false
