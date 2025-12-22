@@ -3,17 +3,19 @@ package com.chicken.goldroad.ui.game
 import android.graphics.BitmapFactory
 import android.graphics.RectF
 import androidx.compose.foundation.Canvas
-import androidx.compose.foundation.background
 import androidx.compose.foundation.gestures.detectDragGestures
 import androidx.compose.foundation.layout.Box
-import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
-import androidx.compose.material3.Button
-import androidx.compose.material3.ButtonDefaults
-import androidx.compose.material3.Text
+import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Pause
+import androidx.compose.material3.Surface
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
@@ -30,84 +32,116 @@ import androidx.compose.ui.graphics.nativeCanvas
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.res.painterResource
+import androidx.compose.ui.graphics.vector.rememberVectorPainter
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.hilt.navigation.compose.hiltViewModel
 import com.chicken.goldroad.R
+import com.chicken.goldroad.data.PlayerPreferences
 import com.chicken.goldroad.domain.GameStatus
+import com.chicken.goldroad.domain.model.BasketType
+import com.chicken.goldroad.ui.PlayerViewModel
+import com.chicken.goldroad.ui.components.RoundIconButton
+import com.chicken.goldroad.ui.components.StrokedText
+import com.chicken.goldroad.ui.overlay.PauseOverlay
+import com.chicken.goldroad.ui.overlay.ResultOverlay
+import kotlin.math.max
 
 @Composable
-fun GameScreen(viewModel: GameViewModel = hiltViewModel(), onBack: () -> Unit) {
+fun GameScreen(
+    playerPreferences: PlayerPreferences,
+    playerViewModel: PlayerViewModel,
+    viewModel: GameViewModel = hiltViewModel(),
+    onBack: () -> Unit
+) {
     val gameState by viewModel.gameState.collectAsState()
     var screenSize by remember { mutableStateOf<Pair<Int, Int>?>(null) }
     var redrawTrigger by remember { mutableStateOf(0L) }
 
     val context = LocalContext.current
 
-    // Watch frameTick and trigger redraw
-    LaunchedEffect(gameState.frameTick) { redrawTrigger = gameState.frameTick }
+    LaunchedEffect(Unit) { playerViewModel.playGameMusic() }
 
-    // Load Egg Bitmaps once
+    val selectedBasket = BasketType.fromId(playerPreferences.selectedBasketId)
+
     val eggBitmaps = remember {
         val eggs =
-                listOf(
-                        R.drawable.egg_1,
-                        R.drawable.egg_2,
-                        R.drawable.egg_3,
-                        R.drawable.egg_4,
-                        R.drawable.egg_5
-                )
+            listOf(
+                R.drawable.egg_1,
+                R.drawable.egg_2,
+                R.drawable.egg_3,
+                R.drawable.egg_4,
+                R.drawable.egg_5
+            )
         eggs.map { id -> BitmapFactory.decodeResource(context.resources, id) }
     }
 
-    // Load Basket Bitmap
-    val basketBitmap = remember {
-        BitmapFactory.decodeResource(context.resources, R.drawable.basket_1)
+    val basketBitmap = remember(selectedBasket.id) {
+        BitmapFactory.decodeResource(context.resources, selectedBasket.imageRes)
     }
 
-    // Load Background Ground Bitmaps
     val bgGroundBitmaps = remember {
         listOf(
-                        R.drawable.bg_ground_1,
-                        R.drawable.bg_ground_2,
-                        R.drawable.bg_ground_3,
-                        R.drawable.bg_ground_4,
-                        R.drawable.bg_ground_5,
-                        R.drawable.bg_ground_6
-                )
-                .map { id -> BitmapFactory.decodeResource(context.resources, id) }
+            R.drawable.bg_ground_1,
+            R.drawable.bg_ground_2,
+            R.drawable.bg_ground_3,
+            R.drawable.bg_ground_4,
+            R.drawable.bg_ground_5,
+            R.drawable.bg_ground_6
+        )
+            .map { id -> BitmapFactory.decodeResource(context.resources, id) }
+    }
+
+    LaunchedEffect(gameState.frameTick) { redrawTrigger = gameState.frameTick }
+
+    var processedStatus by remember { mutableStateOf<GameStatus?>(null) }
+    LaunchedEffect(gameState.status) {
+        val status = gameState.status
+        if (status == GameStatus.PLAYING) {
+            processedStatus = null
+        }
+        if (status != processedStatus && (status == GameStatus.WON || status == GameStatus.LOST)) {
+            val reward = if (status == GameStatus.WON) {
+                max(gameState.score, gameState.targetScore / 2)
+            } else {
+                max(gameState.score / 2, 8)
+            }
+            playerViewModel.addCoins(reward)
+            processedStatus = status
+        }
     }
 
     Box(modifier = Modifier.fillMaxSize()) {
         Canvas(
-                modifier =
-                        Modifier.fillMaxSize()
-                                .onSizeChanged {
-                                    if (screenSize == null) {
-                                        screenSize = it.width to it.height
-                                        viewModel.startLevel(
-                                                it.width,
-                                                it.height,
-                                                bgGroundBitmaps,
-                                                next = false
-                                        )
-                                    }
-                                }
-                                .pointerInput(Unit) {
-                                    detectDragGestures { change, dragAmount ->
-                                        change.consume()
-                                        val cameraY = viewModel.gameEngine.cameraY
-                                        val start =
-                                                change.position - dragAmount + Offset(0f, cameraY)
-                                        val end =
-                                                change.position +
-                                                        androidx.compose.ui.geometry.Offset(
-                                                                0f,
-                                                                cameraY
-                                                        )
-                                        viewModel.gameEngine.dig(start, end)
-                                    }
-                                }
+            modifier =
+            Modifier.fillMaxSize()
+                .onSizeChanged {
+                    if (screenSize == null) {
+                        screenSize = it.width to it.height
+                        viewModel.startLevel(
+                            it.width,
+                            it.height,
+                            bgGroundBitmaps,
+                            next = false
+                        )
+                    }
+                }
+                .pointerInput(Unit) {
+                    detectDragGestures { change, dragAmount ->
+                        change.consume()
+                        val cameraY = viewModel.gameEngine.cameraY
+                        val start =
+                            change.position - dragAmount + Offset(0f, cameraY)
+                        val end =
+                            change.position +
+                                androidx.compose.ui.geometry.Offset(
+                                    0f,
+                                    cameraY
+                                )
+                        viewModel.gameEngine.dig(start, end)
+                    }
+                }
         ) {
             val _key = redrawTrigger
             val cameraY = viewModel.gameEngine.cameraY
@@ -120,7 +154,6 @@ fun GameScreen(viewModel: GameViewModel = hiltViewModel(), onBack: () -> Unit) {
 
                 val screenH = screenSize?.second?.toFloat() ?: 0f
                 viewModel.gameEngine.terrainChunks.forEach { chunk ->
-                    // Optimization: only draw if visible
                     if (chunk.topY + chunk.height > cameraY && chunk.topY < cameraY + screenH) {
                         nativeCanvas.drawBitmap(chunk.bitmap, 0f, chunk.topY, null)
                     }
@@ -133,12 +166,11 @@ fun GameScreen(viewModel: GameViewModel = hiltViewModel(), onBack: () -> Unit) {
                 val eggRadius = viewModel.gameEngine.eggRadius
 
                 eggs.forEach { egg ->
-                    // Optimization: only draw if visible
                     if (egg.y + eggRadius < cameraY ||
-                                    egg.y - eggRadius >
-                                            cameraY + (screenSize?.second?.toFloat() ?: 0f)
+                        egg.y - eggRadius >
+                        cameraY + (screenSize?.second?.toFloat() ?: 0f)
                     )
-                            return@forEach
+                        return@forEach
 
                     val bitmap = eggBitmaps.getOrElse(egg.type - 1) { eggBitmaps[0] }
 
@@ -146,12 +178,12 @@ fun GameScreen(viewModel: GameViewModel = hiltViewModel(), onBack: () -> Unit) {
                     nativeCanvas.rotate(egg.angle, egg.x, egg.y)
 
                     val destRect =
-                            RectF(
-                                    egg.x - eggRadius,
-                                    egg.y - eggRadius,
-                                    egg.x + eggRadius,
-                                    egg.y + eggRadius
-                            )
+                        RectF(
+                            egg.x - eggRadius,
+                            egg.y - eggRadius,
+                            egg.x + eggRadius,
+                            egg.y + eggRadius
+                        )
                     nativeCanvas.drawBitmap(bitmap, null, destRect, null)
 
                     nativeCanvas.restore()
@@ -161,61 +193,108 @@ fun GameScreen(viewModel: GameViewModel = hiltViewModel(), onBack: () -> Unit) {
             }
         }
 
-        // HUD
-        Text(
-                text = "Score: ${gameState.score} / ${gameState.targetScore}",
-                color = Color.White,
-                fontSize = 24.sp,
-                modifier = Modifier.align(Alignment.TopStart).padding(16.dp)
+        TopHud(
+            score = gameState.score,
+            target = gameState.targetScore,
+            coins = playerPreferences.coins,
+            onPause = {
+                viewModel.pauseGame()
+                playerViewModel.pauseAudio()
+            }
         )
 
-        // Overlays
+        if (gameState.status == GameStatus.PAUSED) {
+            PauseOverlay(
+                musicEnabled = playerPreferences.musicEnabled,
+                soundEnabled = playerPreferences.soundEnabled,
+                onToggleMusic = { playerViewModel.setMusicEnabled(!playerPreferences.musicEnabled) },
+                onToggleSound = { playerViewModel.setSoundEnabled(!playerPreferences.soundEnabled) },
+                onResume = {
+                    viewModel.resumeGame()
+                    playerViewModel.resumeAudio()
+                },
+                onHome = {
+                    viewModel.resumeGame()
+                    onBack()
+                }
+            )
+        }
+
         if (gameState.status == GameStatus.WON) {
-            Overlay(
-                    title = "Perfect Flow!",
-                    msg = "+${gameState.score} Points",
-                    color = Color(0xFF4CAF50),
-                    onMain = onBack,
-                    onAction = {
-                        screenSize?.let {
-                            viewModel.startLevel(it.first, it.second, bgGroundBitmaps, next = true)
-                        }
+            ResultOverlay(
+                title = "Perfect Flow!",
+                rewardText = "+${max(gameState.score, gameState.targetScore / 2)}",
+                backgroundColor = Color(0xFFECCF2A),
+                centerImage = selectedBasket.imageRes,
+                onPrimary = {
+                    screenSize?.let {
+                        viewModel.startLevel(it.first, it.second, bgGroundBitmaps, next = true)
                     }
+                },
+                onSecondary = onBack,
+                primaryLabel = "Next",
+                secondaryLabel = "Home"
             )
         } else if (gameState.status == GameStatus.LOST) {
-            Overlay(
-                    title = "Not this time!",
-                    msg = "Try again",
-                    color = Color(0xFFFF9800),
-                    onMain = onBack,
-                    onAction = {
-                        screenSize?.let {
-                            viewModel.startLevel(it.first, it.second, bgGroundBitmaps, next = false)
-                        }
+            ResultOverlay(
+                title = "Not this time!",
+                rewardText = "+${max(gameState.score / 2, 8)}",
+                backgroundColor = Color(0xFFFFB74D),
+                centerImage = selectedBasket.imageRes,
+                onPrimary = {
+                    screenSize?.let {
+                        viewModel.startLevel(it.first, it.second, bgGroundBitmaps, next = false)
                     }
+                },
+                onSecondary = onBack,
+                primaryLabel = "Try again",
+                secondaryLabel = "Home"
             )
         }
     }
 }
 
 @Composable
-fun Overlay(title: String, msg: String, color: Color, onMain: () -> Unit, onAction: () -> Unit) {
-    Box(
-            modifier = Modifier.fillMaxSize().background(Color.Black.copy(alpha = 0.5f)),
-            contentAlignment = Alignment.Center
+private fun TopHud(score: Int, target: Int, coins: Int, onPause: () -> Unit) {
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(16.dp),
+        horizontalArrangement = Arrangement.SpaceBetween,
+        verticalAlignment = Alignment.CenterVertically
     ) {
-        Column(
-                horizontalAlignment = Alignment.CenterHorizontally,
-                modifier = Modifier.background(color).padding(32.dp)
+        Surface(
+            color = Color(0x99000000),
+            shape = RoundedCornerShape(24.dp)
         ) {
-            Text(title, fontSize = 32.sp, color = Color.White)
-            Text(msg, fontSize = 24.sp, color = Color.White)
-            Spacer(modifier = Modifier.size(16.dp))
-            Button(onClick = onAction) { Text("Action") }
-            Button(
-                    onClick = onMain,
-                    colors = ButtonDefaults.buttonColors(containerColor = Color.Red)
-            ) { Text("Home") }
+            Column(modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp)) {
+                StrokedText(text = "Score", color = Color.White, strokeColor = Color.Black, strokeWidth = 4f, fontSize = 14.sp)
+                StrokedText(text = "$score / $target", color = Color.White, strokeColor = Color.Black, strokeWidth = 4f, fontSize = 16.sp)
+            }
+        }
+        Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+            Surface(
+                color = Color(0xFF2C7433),
+                shape = RoundedCornerShape(50)
+            ) {
+                Row(
+                    modifier = Modifier.padding(horizontal = 14.dp, vertical = 8.dp),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    androidx.compose.foundation.Image(
+                        painter = painterResource(id = R.drawable.egg_1),
+                        contentDescription = null,
+                        modifier = Modifier.size(24.dp)
+                    )
+                    StrokedText(text = coins.toString(), color = Color.White, strokeColor = Color.Black, strokeWidth = 4f, fontSize = 16.sp)
+                }
+            }
+            RoundIconButton(
+                icon = rememberVectorPainter(Icons.Default.Pause),
+                modifier = Modifier.size(56.dp),
+                onClick = onPause
+            )
         }
     }
 }
