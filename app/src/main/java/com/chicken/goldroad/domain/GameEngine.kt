@@ -65,6 +65,9 @@ class GameEngine @Inject constructor(private val soundManager: SoundManager) {
     private var scrollSpeed = 6.0f
     var worldHeight = 0
 
+    private var lastDigTime = 0L
+    private val digThrottleMs = 16L // Max 60 dig operations per second
+
     var terrainBitmap: Bitmap? = null
     private var terrainCanvas: Canvas? = null
 
@@ -246,6 +249,12 @@ class GameEngine @Inject constructor(private val soundManager: SoundManager) {
 
     fun dig(start: Offset, end: Offset) {
         if (_gameState.value.status != GameStatus.PLAYING) return
+
+        // Throttle dig operations to prevent lag
+        val currentTime = System.currentTimeMillis()
+        if (currentTime - lastDigTime < digThrottleMs) return
+        lastDigTime = currentTime
+
         terrainCanvas?.drawLine(start.x, start.y, end.x, end.y, eraserPaint)
         // Eggs will wake naturally when they detect no terrain collision
     }
