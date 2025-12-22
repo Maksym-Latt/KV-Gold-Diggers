@@ -61,6 +61,10 @@ class GameEngine @Inject constructor(private val soundManager: SoundManager) {
     private val _gameState = MutableStateFlow(GameState())
     val gameState: StateFlow<GameState> = _gameState.asStateFlow()
 
+    var cameraY = 0f
+    private var scrollSpeed = 6.0f
+    var worldHeight = 0
+
     var terrainBitmap: Bitmap? = null
     private var terrainCanvas: Canvas? = null
 
@@ -99,17 +103,17 @@ class GameEngine @Inject constructor(private val soundManager: SoundManager) {
     private val wallFriction = 0.75f
     private val rollingFactor = 1.0f
 
-    private val collisionResolveIterations = 9
+    private val collisionResolveIterations = 5
     private val maxPushOutPerFrame = eggRadius * 3.5f
 
-    private val eggCollisionIterations = 6
+    private val eggCollisionIterations = 3
     private val eggRestitution = 0.08f
     private val eggTangentialFriction = 0.90f
     private val eggMaxImpulse = 0.8f
     private val eggPositionSlop = 0.35f
     private val eggSeparationBias = 0.35f
 
-    private val solvePasses = 3
+    private val solvePasses = 2
 
     private val sleepSpeed = 0.05f
     private val sleepAngular = 0.4f
@@ -157,8 +161,13 @@ class GameEngine @Inject constructor(private val soundManager: SoundManager) {
     fun initLevel(width: Int, height: Int, level: Int) {
         screenWidth = width
         screenHeight = height
+        worldHeight = height * 5
+        cameraY = 0f
 
-        terrainBitmap = Bitmap.createBitmap(width, height, Bitmap.Config.ARGB_8888)
+        val targetScore = 20 + (level * 10)
+        val totalEggs = targetScore * 2
+
+        terrainBitmap = Bitmap.createBitmap(width, worldHeight, Bitmap.Config.ARGB_8888)
         terrainCanvas = Canvas(terrainBitmap!!)
 
         val dirtColor = android.graphics.Color.parseColor("#8D6E63")
@@ -168,59 +177,43 @@ class GameEngine @Inject constructor(private val soundManager: SoundManager) {
         val basketH = 100f
         basketRect.set(
                 width / 2f - basketW / 2f,
-                height - basketH - 50f,
+                worldHeight - basketH - 300f,
                 width / 2f + basketW / 2f,
-                height - 50f
+                worldHeight - 300f
         )
 
         movingEggs.clear()
-        spawnEggs(25)
+        spawnEggs(totalEggs)
 
         obstacles.clear()
         // generateObstacles(level, width, height)
 
-        _gameState.value = GameState(level = level, score = 0, targetScore = 20 + (level * 10))
+        _gameState.value = GameState(level = level, score = 0, targetScore = targetScore)
     }
 
-    private fun spawnEggs(count: Int) {
-        val clusterCount = Random.nextInt(3, 6)
+    private fun spawnEggs(totalCount: Int) {
+        val topCount = (totalCount * 0.2f).toInt()
+        val restCount = totalCount - topCount
+
+        // 20% at the top
+        spawnClustersInRegion(topCount, 100f, screenHeight * 0.8f)
+
+        // 80% distributed through the rest
+        spawnClustersInRegion(restCount, screenHeight * 0.8f, worldHeight - 600f)
+    }
+
+    private fun spawnClustersInRegion(count: Int, minY: Float, maxY: Float) {
+        if (count <= 0) return
+        val clusterCount = max(1, count / 5)
         val eggsPerCluster = count / clusterCount
 
         repeat(clusterCount) {
-            // Cluster center: favor top (startY is 150f, screenHeight is available)
-            // We'll distribute clusters across the width, and mostly in the top half
             val cx = Random.nextFloat() * (screenWidth - 200f) + 100f
-            val cy = Random.nextFloat() * (screenHeight * 0.4f) + 50f // Favor top 40%
+            val cy = Random.nextFloat() * (maxY - minY) + minY
 
-            // Dig void for cluster
             terrainCanvas?.drawCircle(cx, cy, 100f, fillEraserPaint)
 
             repeat(eggsPerCluster) { i ->
-                movingEggs.add(
-                        Egg(
-                                id = System.nanoTime() + i + Random.nextLong(),
-                                x = cx + Random.nextFloat() * 120 - 60,
-                                y = cy + Random.nextFloat() * 120 - 60,
-                                vx = Random.nextFloat() * 2 - 1,
-                                vy = 0f,
-                                angle = Random.nextFloat() * 360f,
-                                angularVelocity = Random.nextFloat() * 5 - 2.5f,
-                                type = Random.nextInt(1, 6)
-                        )
-                )
-            }
-        }
-
-        // Add any remaining eggs to a final random cluster
-        val remaining = count % clusterCount
-        if (remaining > 0) {
-            val cx = Random.nextFloat() * (screenWidth - 200f) + 100f
-            val cy = Random.nextFloat() * (screenHeight * 0.4f) + 50f
-
-            // Dig void for cluster
-            terrainCanvas?.drawCircle(cx, cy, 100f, fillEraserPaint)
-
-            repeat(remaining) { i ->
                 movingEggs.add(
                         Egg(
                                 id = System.nanoTime() + i + Random.nextLong(),
@@ -260,16 +253,19 @@ class GameEngine @Inject constructor(private val soundManager: SoundManager) {
     fun update() {
         if (_gameState.value.status != GameStatus.PLAYING) return
 
+        // Auto-scroll camera
+        if (cameraY < worldHeight - screenHeight + 200f) {
+            cameraY += scrollSpeed
+        }
+
         var score = _gameState.value.score
 
         movingEggs.forEach { egg ->
             if (!egg.isActive) return@forEach
 
-            val speedSq = egg.vx * egg.vx + egg.vy * egg.vy
-            val inSleepBand =
-                    speedSq < (sleepSpeed * sleepSpeed) && abs(egg.angularVelocity) < sleepAngular
+            val isSleeping = egg.sleepFrames >= sleepFramesToLock
 
-            if (egg.sleepFrames >= sleepFramesToLock && inSleepBand) {
+            if (isSleeping) {
                 egg.vx = 0f
                 egg.vy = 0f
                 egg.angularVelocity = 0f
@@ -277,54 +273,55 @@ class GameEngine @Inject constructor(private val soundManager: SoundManager) {
                 egg.vy += gravity
                 egg.vx *= airDrag
                 egg.vy *= airDrag
+
+                var nextX = egg.x + egg.vx
+                var nextY = egg.y + egg.vy
+
+                val wallHit =
+                        resolveScreenBounds(egg, nextX, nextY)
+                                .also {
+                                    nextX = it.first
+                                    nextY = it.second
+                                }
+                                .third
+
+                val terrainResult =
+                        resolveTerrainCollision(
+                                startX = nextX,
+                                startY = nextY,
+                                radius = eggRadius,
+                                vx = egg.vx,
+                                vy = egg.vy,
+                                wallHit = wallHit
+                        )
+
+                egg.x = terrainResult.x
+                egg.y = terrainResult.y
+                egg.vx = terrainResult.vx
+                egg.vy = terrainResult.vy
+                egg.angularVelocity = terrainResult.angularVelocity
+
+                egg.angle = normalizeAngle(egg.angle + egg.angularVelocity)
+
+                if (abs(egg.vx) < tinyVel) egg.vx = 0f
+                if (abs(egg.vy) < tinyVel) egg.vy = 0f
+                if (abs(egg.angularVelocity) < tinyAng) egg.angularVelocity = 0f
+
+                if (egg.y > worldHeight + 200f) {
+                    egg.y = cameraY - eggRadius // Reset to top of view
+                    egg.vy = 0f
+                    egg.vx = 0f
+                    egg.angularVelocity = 0f
+                    egg.sleepFrames = sleepFramesToLock
+                }
+
+                val postSpeedSq = egg.vx * egg.vx + egg.vy * egg.vy
+                val postSleepBand =
+                        postSpeedSq < (sleepSpeed * sleepSpeed) &&
+                                abs(egg.angularVelocity) < sleepAngular
+                egg.sleepFrames =
+                        if (postSleepBand) min(egg.sleepFrames + 1, sleepFramesToLock) else 0
             }
-
-            var nextX = egg.x + egg.vx
-            var nextY = egg.y + egg.vy
-
-            val wallHit =
-                    resolveScreenBounds(egg, nextX, nextY)
-                            .also {
-                                nextX = it.first
-                                nextY = it.second
-                            }
-                            .third
-
-            val terrainResult =
-                    resolveTerrainCollision(
-                            startX = nextX,
-                            startY = nextY,
-                            radius = eggRadius,
-                            vx = egg.vx,
-                            vy = egg.vy,
-                            wallHit = wallHit
-                    )
-
-            egg.x = terrainResult.x
-            egg.y = terrainResult.y
-            egg.vx = terrainResult.vx
-            egg.vy = terrainResult.vy
-            egg.angularVelocity = terrainResult.angularVelocity
-
-            egg.angle = normalizeAngle(egg.angle + egg.angularVelocity)
-
-            if (abs(egg.vx) < tinyVel) egg.vx = 0f
-            if (abs(egg.vy) < tinyVel) egg.vy = 0f
-            if (abs(egg.angularVelocity) < tinyAng) egg.angularVelocity = 0f
-
-            if (egg.y > screenHeight + 2000f) {
-                egg.y = screenHeight - eggRadius
-                egg.vy = 0f
-                egg.vx = 0f
-                egg.angularVelocity = 0f
-                egg.sleepFrames = sleepFramesToLock
-            }
-
-            val postSpeedSq = egg.vx * egg.vx + egg.vy * egg.vy
-            val postSleepBand =
-                    postSpeedSq < (sleepSpeed * sleepSpeed) &&
-                            abs(egg.angularVelocity) < sleepAngular
-            egg.sleepFrames = if (postSleepBand) min(egg.sleepFrames + 1, sleepFramesToLock) else 0
         }
 
         repeat(solvePasses) {
@@ -509,55 +506,7 @@ class GameEngine @Inject constructor(private val soundManager: SoundManager) {
 
     private fun clampToScreen(egg: Egg) {
         egg.x = egg.x.coerceIn(eggRadius, screenWidth - eggRadius)
-        egg.y = egg.y.coerceIn(eggRadius, screenHeight - eggRadius)
-    }
-
-    private fun resolveScreenBounds(egg: Egg, x: Float, y: Float): Triple<Float, Float, Boolean> {
-        var nx = x
-        var ny = y
-        var hit = false
-
-        if (nx < eggRadius) {
-            nx = eggRadius
-            egg.vx = -egg.vx * restitution
-            hit = true
-            egg.sleepFrames = 0
-        } else if (nx > screenWidth - eggRadius) {
-            nx = screenWidth - eggRadius
-            egg.vx = -egg.vx * restitution
-            hit = true
-            egg.sleepFrames = 0
-        }
-
-        if (ny < eggRadius) {
-            ny = eggRadius
-            egg.vy = -egg.vy * restitution
-            egg.sleepFrames = 0
-        }
-
-        return Triple(nx, ny, hit)
-    }
-
-    private fun resolveScreenBoundsNoBounce(egg: Egg): Boolean {
-        var hit = false
-        if (egg.x < eggRadius) {
-            egg.x = eggRadius
-            if (egg.vx < 0f) egg.vx = 0f
-            hit = true
-        } else if (egg.x > screenWidth - eggRadius) {
-            egg.x = screenWidth - eggRadius
-            if (egg.vx > 0f) egg.vx = 0f
-            hit = true
-        }
-        if (egg.y < eggRadius) {
-            egg.y = eggRadius
-            if (egg.vy < 0f) egg.vy = 0f
-        }
-        if (egg.y > screenHeight - eggRadius) {
-            egg.y = screenHeight - eggRadius
-            if (egg.vy > 0f) egg.vy = 0f
-        }
-        return hit
+        egg.y = egg.y.coerceIn(eggRadius, worldHeight - eggRadius)
     }
 
     private data class TerrainResolveResult(
@@ -650,7 +599,7 @@ class GameEngine @Inject constructor(private val soundManager: SoundManager) {
             val sx = (x + dx * radius).toInt()
             val sy = (y + dy * radius).toInt()
 
-            if (sx in 0 until screenWidth && sy in 0 until screenHeight) {
+            if (sx in 0 until screenWidth && sy in 0 until worldHeight) {
                 val solid =
                         try {
                             val pixel = bmp.getPixel(sx, sy)
@@ -683,7 +632,7 @@ class GameEngine @Inject constructor(private val soundManager: SoundManager) {
 
     private fun isTerrainSolid(x: Int, y: Int): Boolean {
         val bmp = terrainBitmap ?: return false
-        if (x < 0 || x >= screenWidth || y < 0 || y >= screenHeight) return false
+        if (x < 0 || x >= screenWidth || y < 0 || y >= worldHeight) return false
         return try {
             val pixel = bmp.getPixel(x, y)
             (pixel ushr 24) > 0
@@ -729,7 +678,7 @@ class GameEngine @Inject constructor(private val soundManager: SoundManager) {
         while (i < points.size) {
             val cx = (x + points[i]).toInt()
             val cy = (y + points[i + 1]).toInt()
-            if (cx in 0 until screenWidth && cy in 0 until screenHeight) {
+            if (cx in 0 until screenWidth && cy in 0 until worldHeight) {
                 val solid =
                         try {
                             val pixel = bmp.getPixel(cx, cy)
@@ -742,6 +691,50 @@ class GameEngine @Inject constructor(private val soundManager: SoundManager) {
             i += 2
         }
         return false
+    }
+
+    private fun resolveScreenBounds(
+            egg: Egg,
+            nextX: Float,
+            nextY: Float
+    ): Triple<Float, Float, Boolean> {
+        var nx = nextX
+        var ny = nextY
+        var hit = false
+
+        if (nx < eggRadius) {
+            nx = eggRadius
+            egg.vx *= -wallFriction
+            hit = true
+        } else if (nx > screenWidth - eggRadius) {
+            nx = screenWidth - eggRadius
+            egg.vx *= -wallFriction
+            hit = true
+        }
+
+        if (ny > worldHeight - eggRadius) {
+            ny = worldHeight - eggRadius
+            egg.vy *= -surfaceFriction
+            hit = true
+        }
+
+        return Triple(nx, ny, hit)
+    }
+
+    private fun resolveScreenBoundsNoBounce(egg: Egg): Boolean {
+        var hit = false
+        if (egg.x < eggRadius) {
+            egg.x = eggRadius
+            hit = true
+        } else if (egg.x > screenWidth - eggRadius) {
+            egg.x = screenWidth - eggRadius
+            hit = true
+        }
+        if (egg.y > worldHeight - eggRadius) {
+            egg.y = worldHeight - eggRadius
+            hit = true
+        }
+        return hit
     }
 
     fun pause() {

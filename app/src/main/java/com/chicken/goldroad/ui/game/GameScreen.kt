@@ -73,32 +73,50 @@ fun GameScreen(viewModel: GameViewModel = hiltViewModel(), onBack: () -> Unit) {
                                 .pointerInput(Unit) {
                                     detectDragGestures { change, dragAmount ->
                                         change.consume()
-                                        val start = change.position - dragAmount
-                                        val end = change.position
+                                        val cameraY = viewModel.gameEngine.cameraY
+                                        val start =
+                                                change.position - dragAmount +
+                                                        androidx.compose.ui.geometry.Offset(
+                                                                0f,
+                                                                cameraY
+                                                        )
+                                        val end =
+                                                change.position +
+                                                        androidx.compose.ui.geometry.Offset(
+                                                                0f,
+                                                                cameraY
+                                                        )
                                         viewModel.gameEngine.dig(start, end)
                                     }
                                 }
         ) {
-            // Reference redrawTrigger to force recomposition
             val _key = redrawTrigger
+            val cameraY = viewModel.gameEngine.cameraY
 
             drawIntoCanvas { canvas ->
                 val nativeCanvas = canvas.nativeCanvas
 
-                // Draw Terrain
+                nativeCanvas.save()
+                nativeCanvas.translate(0f, -cameraY)
+
                 viewModel.gameEngine.terrainBitmap?.let {
                     nativeCanvas.drawBitmap(it, 0f, 0f, null)
                 }
 
-                // Draw Basket visual
                 val basketRect = viewModel.gameEngine.basketRect
                 nativeCanvas.drawBitmap(basketBitmap, null, basketRect, null)
 
-                // Draw Eggs
                 val eggs = gameState.eggs
                 val eggRadius = viewModel.gameEngine.eggRadius
 
                 eggs.forEach { egg ->
+                    // Optimization: only draw if visible
+                    if (egg.y + eggRadius < cameraY ||
+                                    egg.y - eggRadius >
+                                            cameraY + (screenSize?.second?.toFloat() ?: 0f)
+                    )
+                            return@forEach
+
                     val bitmap = eggBitmaps.getOrElse(egg.type - 1) { eggBitmaps[0] }
 
                     nativeCanvas.save()
@@ -115,6 +133,8 @@ fun GameScreen(viewModel: GameViewModel = hiltViewModel(), onBack: () -> Unit) {
 
                     nativeCanvas.restore()
                 }
+
+                nativeCanvas.restore()
             }
         }
 
