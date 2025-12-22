@@ -4,22 +4,20 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.chicken.goldroad.domain.GameEngine
 import dagger.hilt.android.lifecycle.HiltViewModel
+import javax.inject.Inject
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
-import javax.inject.Inject
 
 @HiltViewModel
-class GameViewModel @Inject constructor(
-    val gameEngine: GameEngine
-) : ViewModel() {
+class GameViewModel @Inject constructor(val gameEngine: GameEngine) : ViewModel() {
 
     val gameState = gameEngine.gameState
     private var gameLoopRunning = false
 
     fun startGame(width: Int, height: Int) {
         if (gameEngine.gameState.value.level == 1 && gameEngine.gameState.value.eggs.isEmpty()) {
-             gameEngine.initLevel(width, height, 1)
+            gameEngine.initLevel(width, height, 1)
         }
         startGameLoop()
     }
@@ -29,12 +27,12 @@ class GameViewModel @Inject constructor(
         gameLoopRunning = true
         viewModelScope.launch {
             while (isActive) {
-                gameEngine.update(16L) // ~60 FPS
+                gameEngine.update() // ~60 FPS
                 delay(16)
             }
         }
     }
-    
+
     override fun onCleared() {
         super.onCleared()
         // clean up

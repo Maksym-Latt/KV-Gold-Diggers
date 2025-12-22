@@ -95,8 +95,8 @@ class GameEngine @Inject constructor(private val soundManager: SoundManager) {
     private val airDrag = 0.995f
 
     private val restitution = 0.05f
-    private val surfaceFriction = 0.88f
-    private val wallFriction = 0.92f
+    private val surfaceFriction = 0.75f
+    private val wallFriction = 0.75f
     private val rollingFactor = 1.0f
 
     private val collisionResolveIterations = 9
@@ -105,15 +105,15 @@ class GameEngine @Inject constructor(private val soundManager: SoundManager) {
     private val eggCollisionIterations = 6
     private val eggRestitution = 0.08f
     private val eggTangentialFriction = 0.90f
-    private val eggMaxImpulse = 1.8f
+    private val eggMaxImpulse = 0.8f
     private val eggPositionSlop = 0.35f
-    private val eggSeparationBias = 0.65f
+    private val eggSeparationBias = 0.35f
 
     private val solvePasses = 3
 
     private val sleepSpeed = 0.05f
     private val sleepAngular = 0.4f
-    private val sleepFramesToLock = 10
+    private val sleepFramesToLock = 20
 
     private val tinyVel = 0.02f
     private val tinyAng = 0.25f
@@ -174,7 +174,7 @@ class GameEngine @Inject constructor(private val soundManager: SoundManager) {
         )
 
         movingEggs.clear()
-        spawnEggs(25, width / 2f, 150f)
+        spawnEggs(25)
 
         obstacles.clear()
         // generateObstacles(level, width, height)
@@ -182,7 +182,7 @@ class GameEngine @Inject constructor(private val soundManager: SoundManager) {
         _gameState.value = GameState(level = level, score = 0, targetScore = 20 + (level * 10))
     }
 
-    private fun spawnEggs(count: Int, startX: Float, startY: Float) {
+    private fun spawnEggs(count: Int) {
         val clusterCount = Random.nextInt(3, 6)
         val eggsPerCluster = count / clusterCount
 
@@ -257,7 +257,7 @@ class GameEngine @Inject constructor(private val soundManager: SoundManager) {
         movingEggs.forEach { it.sleepFrames = 0 }
     }
 
-    fun update(deltaTime: Long) {
+    fun update() {
         if (_gameState.value.status != GameStatus.PLAYING) return
 
         var score = _gameState.value.score
@@ -412,6 +412,10 @@ class GameEngine @Inject constructor(private val soundManager: SoundManager) {
                 for (j in i + 1 until active.size) {
                     val b = active[j]
 
+                    val aSleep = a.sleepFrames >= sleepFramesToLock
+                    val bSleep = b.sleepFrames >= sleepFramesToLock
+                    if (aSleep && bSleep) continue
+
                     val dx = b.x - a.x
                     val dy = b.y - a.y
                     val distSq = dx * dx + dy * dy
@@ -424,14 +428,49 @@ class GameEngine @Inject constructor(private val soundManager: SoundManager) {
                     val penetration = (minDist - dist) - eggPositionSlop
                     if (penetration > 0f) {
                         val push = penetration * 0.5f * eggSeparationBias
-                        a.x -= nx * push
-                        a.y -= ny * push
-                        b.x += nx * push
-                        b.y += ny * push
+                        if (!aSleep) {
+                            a.x -= nx * push
+                            a.y -= ny * push
+                        }
+                        if (!bSleep) {
+                            b.x += nx * push
+                            b.y += ny * push
+                        }
+
                         clampToScreen(a)
                         clampToScreen(b)
-                        a.sleepFrames = 0
-                        b.sleepFrames = 0
+
+                        if (penetration > 1.0f) {
+                            a.sleepFrames = 0
+                            b.sleepFrames = 0
+                        }
+                    }
+
+                    if (aSleep || bSleep) {
+                        // Wake up if hit with enough relative velocity
+                        val rvx = b.vx - a.vx
+                        val rvy = b.vy - a.vy
+                        val velAlongNormal = rvx * nx + rvy * ny
+                        if (velAlongNormal < -0.5f) {
+                            a.sleepFrames = 0
+                            b.sleepFrames = 0
+                        }
+                        if (aSleep && !bSleep) {
+                            // Resolve as static bounciness for 'b'
+                            val vn = b.vx * nx + b.vy * ny
+                            if (vn < 0) {
+                                b.vx -= 2 * vn * nx * eggRestitution
+                                b.vy -= 2 * vn * ny * eggRestitution
+                            }
+                            continue
+                        } else if (!aSleep && bSleep) {
+                            val vn = a.vx * nx + a.vy * ny
+                            if (vn > 0) {
+                                a.vx -= 2 * vn * nx * eggRestitution
+                                a.vy -= 2 * vn * ny * eggRestitution
+                            }
+                            continue
+                        }
                     }
 
                     val rvx = b.vx - a.vx
@@ -560,7 +599,7 @@ class GameEngine @Inject constructor(private val soundManager: SoundManager) {
             normalX = n.first
             normalY = n.second
 
-            val pushStep = min(radius * 0.55f, maxPushOutPerFrame - pushedTotal)
+            val pushStep = min(radius * 0.15f, maxPushOutPerFrame - pushedTotal)
             if (pushStep <= 0f) return@repeat
 
             px += normalX * pushStep
@@ -580,7 +619,7 @@ class GameEngine @Inject constructor(private val soundManager: SoundManager) {
         val frictionK = if (wallHit || abs(normalX) > 0.6f) wallFriction else surfaceFriction
 
         if (vn < 0f) {
-            val newVn = if (abs(vn) < 0.10f) 0f else -vn * restitution
+            val newVn = if (abs(vn) < 0.5f) 0f else -vn * restitution
             val newVt = vt * frictionK
             cvx = tx * newVt + normalX * newVn
             cvy = ty * newVt + normalY * newVn
