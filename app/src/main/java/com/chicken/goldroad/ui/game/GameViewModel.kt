@@ -38,6 +38,14 @@ class GameViewModel @Inject constructor(val gameEngine: GameEngine) : ViewModel(
         }
     }
 
+    fun pauseGame() {
+        gameEngine.pause()
+    }
+
+    fun resumeGame() {
+        gameEngine.resume()
+    }
+
     override fun onCleared() {
         super.onCleared()
         // clean up

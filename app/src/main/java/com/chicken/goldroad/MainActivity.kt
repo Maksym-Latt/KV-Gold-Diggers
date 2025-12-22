@@ -7,6 +7,7 @@ import androidx.activity.enableEdgeToEdge
 import androidx.core.view.WindowCompat
 import androidx.core.view.WindowInsetsCompat
 import androidx.core.view.WindowInsetsControllerCompat
+import com.chicken.goldroad.data.AudioController
 import com.chicken.goldroad.data.SoundManager
 import com.chicken.goldroad.ui.AppRootNavigation
 import com.chicken.goldroad.ui.theme.ChickenGoldDiggersRoadTheme
@@ -17,6 +18,7 @@ import javax.inject.Inject
 class MainActivity : ComponentActivity() {
 
     @Inject lateinit var soundManager: SoundManager
+    @Inject lateinit var audioController: AudioController
 
     override fun onCreate(savedInstanceState: Bundle?) {
         WindowCompat.setDecorFitsSystemWindows(window, false)
@@ -30,14 +32,17 @@ class MainActivity : ComponentActivity() {
     override fun onResume() {
         super.onResume()
         soundManager.resumeAfterLifecycle()
+        audioController.resume()
     }
 
     override fun onPause() {
+        audioController.pause()
         soundManager.pauseForLifecycle()
         super.onPause()
     }
 
     override fun onDestroy() {
+        audioController.release()
         soundManager.release()
         super.onDestroy()
     }

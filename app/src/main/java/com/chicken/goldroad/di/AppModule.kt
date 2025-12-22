@@ -1,6 +1,8 @@
 package com.chicken.goldroad.di
 
 import android.content.Context
+import com.chicken.goldroad.data.AudioController
+import com.chicken.goldroad.data.PlayerDataRepository
 import com.chicken.goldroad.data.SoundManager
 import dagger.Module
 import dagger.Provides
@@ -17,5 +19,20 @@ object AppModule {
     @Singleton
     fun provideSoundManager(@ApplicationContext context: Context): SoundManager {
         return SoundManager(context)
+    }
+
+    @Provides
+    @Singleton
+    fun providePlayerRepository(@ApplicationContext context: Context): PlayerDataRepository {
+        return PlayerDataRepository(context)
+    }
+
+    @Provides
+    @Singleton
+    fun provideAudioController(
+        @ApplicationContext context: Context,
+        soundManager: SoundManager
+    ): AudioController {
+        return AudioController(context, soundManager)
     }
 }
