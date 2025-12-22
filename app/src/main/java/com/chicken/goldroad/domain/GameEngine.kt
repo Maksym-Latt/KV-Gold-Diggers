@@ -247,20 +247,7 @@ class GameEngine @Inject constructor(private val soundManager: SoundManager) {
     fun dig(start: Offset, end: Offset) {
         if (_gameState.value.status != GameStatus.PLAYING) return
         terrainCanvas?.drawLine(start.x, start.y, end.x, end.y, eraserPaint)
-
-        // Only wake eggs near the dig area (within 200 pixels)
-        val midX = (start.x + end.x) / 2f
-        val midY = (start.y + end.y) / 2f
-        val wakeRadius = 200f
-        val wakeRadiusSq = wakeRadius * wakeRadius
-
-        movingEggs.forEach { egg ->
-            val dx = egg.x - midX
-            val dy = egg.y - midY
-            if (dx * dx + dy * dy < wakeRadiusSq) {
-                egg.sleepFrames = 0
-            }
-        }
+        // Eggs will wake naturally when they detect no terrain collision
     }
 
     fun update() {
@@ -279,9 +266,15 @@ class GameEngine @Inject constructor(private val soundManager: SoundManager) {
             val isSleeping = egg.sleepFrames >= sleepFramesToLock
 
             if (isSleeping) {
-                egg.vx = 0f
-                egg.vy = 0f
-                egg.angularVelocity = 0f
+                // Check if sleeping egg is floating (terrain was dug away)
+                if (!checkTerrainCollision(egg.x, egg.y, eggRadius)) {
+                    egg.sleepFrames = 0
+                    egg.vy = gravity // Start falling
+                } else {
+                    egg.vx = 0f
+                    egg.vy = 0f
+                    egg.angularVelocity = 0f
+                }
             } else {
                 egg.vy += gravity
                 egg.vx *= airDrag
