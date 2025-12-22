@@ -1,6 +1,5 @@
 package com.chicken.goldroad.ui.game
 
-import android.graphics.Paint
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
 import androidx.compose.foundation.gestures.detectDragGestures
@@ -56,6 +55,11 @@ fun GameScreen(viewModel: GameViewModel = hiltViewModel(), onBack: () -> Unit) {
         eggs.map { id -> android.graphics.BitmapFactory.decodeResource(context.resources, id) }
     }
 
+    // Load Basket Bitmap
+    val basketBitmap = remember {
+        android.graphics.BitmapFactory.decodeResource(context.resources, R.drawable.basket_1)
+    }
+
     Box(modifier = Modifier.fillMaxSize()) {
         Canvas(
                 modifier =
@@ -86,17 +90,9 @@ fun GameScreen(viewModel: GameViewModel = hiltViewModel(), onBack: () -> Unit) {
                     nativeCanvas.drawBitmap(it, 0f, 0f, null)
                 }
 
-                // Draw Basket visual (placeholder)
+                // Draw Basket visual
                 val basketRect = viewModel.gameEngine.basketRect
-                nativeCanvas.drawText(
-                        "Basket",
-                        basketRect.centerX(),
-                        basketRect.centerY(),
-                        Paint().apply {
-                            textSize = 40f
-                            color = android.graphics.Color.WHITE
-                        }
-                )
+                nativeCanvas.drawBitmap(basketBitmap, null, basketRect, null)
 
                 // Draw Eggs
                 val eggs = gameState.eggs
