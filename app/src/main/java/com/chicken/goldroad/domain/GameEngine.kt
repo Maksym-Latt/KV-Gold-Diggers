@@ -103,17 +103,17 @@ class GameEngine @Inject constructor(private val soundManager: SoundManager) {
     private val wallFriction = 0.75f
     private val rollingFactor = 1.0f
 
-    private val collisionResolveIterations = 5
+    private val collisionResolveIterations = 3
     private val maxPushOutPerFrame = eggRadius * 3.5f
 
-    private val eggCollisionIterations = 3
+    private val eggCollisionIterations = 2
     private val eggRestitution = 0.08f
     private val eggTangentialFriction = 0.90f
     private val eggMaxImpulse = 0.8f
     private val eggPositionSlop = 0.35f
     private val eggSeparationBias = 0.35f
 
-    private val solvePasses = 2
+    private val solvePasses = 1
 
     private val sleepSpeed = 0.05f
     private val sleepAngular = 0.4f
@@ -247,7 +247,20 @@ class GameEngine @Inject constructor(private val soundManager: SoundManager) {
     fun dig(start: Offset, end: Offset) {
         if (_gameState.value.status != GameStatus.PLAYING) return
         terrainCanvas?.drawLine(start.x, start.y, end.x, end.y, eraserPaint)
-        movingEggs.forEach { it.sleepFrames = 0 }
+
+        // Only wake eggs near the dig area (within 200 pixels)
+        val midX = (start.x + end.x) / 2f
+        val midY = (start.y + end.y) / 2f
+        val wakeRadius = 200f
+        val wakeRadiusSq = wakeRadius * wakeRadius
+
+        movingEggs.forEach { egg ->
+            val dx = egg.x - midX
+            val dy = egg.y - midY
+            if (dx * dx + dy * dy < wakeRadiusSq) {
+                egg.sleepFrames = 0
+            }
+        }
     }
 
     fun update() {
@@ -416,6 +429,9 @@ class GameEngine @Inject constructor(private val soundManager: SoundManager) {
                     val dx = b.x - a.x
                     val dy = b.y - a.y
                     val distSq = dx * dx + dy * dy
+
+                    // Early exit for distant eggs (optimization)
+                    if (distSq >= minDistSq * 4f) continue
                     if (distSq >= minDistSq) continue
 
                     val dist = sqrt(max(distSq, 0.0001f))
