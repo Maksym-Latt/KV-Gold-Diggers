@@ -156,15 +156,16 @@ fun GameScreen(
                                 .onSizeChanged {
                                     if (screenSize == null) {
                                         screenSize = it.width to it.height
-                                        viewModel.startLevel(
-                                                context,
-                                                playerPreferences,
-                                                it.width,
-                                                it.height,
-                                                next = false
-                                        )
-                                    }
-                                }
+                                                viewModel.startLevel(
+                                                        context,
+                                                        playerPreferences,
+                                                        it.width,
+                                                        it.height,
+                                                        next = false,
+                                                        startPaused = true
+                                                )
+                                            }
+                                        }
                                 .pointerInput(Unit) {
                                     detectDragGestures { change, dragAmount ->
                                         change.consume()
@@ -297,7 +298,8 @@ fun GameScreen(
                                     playerPreferences,
                                     it.first,
                                     it.second,
-                                    next = true
+                                    next = true,
+                                    startPaused = false
                             )
                         }
                     },
@@ -320,7 +322,8 @@ fun GameScreen(
                                     playerPreferences,
                                     it.first,
                                     it.second,
-                                    next = false
+                                    next = false,
+                                    startPaused = true
                             )
                         }
                     },
