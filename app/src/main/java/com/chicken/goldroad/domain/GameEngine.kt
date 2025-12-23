@@ -51,11 +51,13 @@ enum class ObstacleType {
 
 data class GameState(
         val score: Int = 0,
+        val collectedEggs: Int = 0,
         val targetScore: Int = 100,
         val status: GameStatus = GameStatus.PLAYING,
         val eggs: List<Egg> = emptyList(),
         val level: Int = 1,
-        val frameTick: Long = 0
+        val frameTick: Long = 0,
+        val countdownSeconds: Int? = null
 )
 
 @Singleton
@@ -66,6 +68,9 @@ class GameEngine @Inject constructor(private val soundManager: SoundManager) {
     var cameraY = 0f
     private var scrollSpeed = 6.0f
     var worldHeight = 0
+    private var countdownStarted = false
+    private var countdownFrames = 0
+    private val countdownTotalFrames = 5 * 60 // 10 seconds at ~60fps
 
     private var lastDigTime = 0L
     private val digThrottleMs = 16L // Max 60 dig operations per second
@@ -177,8 +182,10 @@ class GameEngine @Inject constructor(private val soundManager: SoundManager) {
     fun initLevel(width: Int, height: Int, level: Int, bgBitmaps: List<Bitmap>) {
         screenWidth = width
         screenHeight = height
-        worldHeight = height * 5
+        worldHeight = height * 5 + 1000 // Ensure enough terrain below the basket
         cameraY = 0f
+        countdownStarted = false
+        countdownFrames = 0
 
         val targetScore = 20 + (level * 10)
         val totalEggs = targetScore * 2
@@ -226,9 +233,9 @@ class GameEngine @Inject constructor(private val soundManager: SoundManager) {
         val basketH = 100f
         basketRect.set(
                 width / 2f - basketW / 2f,
-                worldHeight - basketH - 300f,
+                worldHeight - basketH - 500f,
                 width / 2f + basketW / 2f,
-                worldHeight - 300f
+                worldHeight - 500f
         )
 
         movingEggs.clear()
@@ -244,11 +251,11 @@ class GameEngine @Inject constructor(private val soundManager: SoundManager) {
         val topCount = (totalCount * 0.2f).toInt()
         val restCount = totalCount - topCount
 
-        // 20% at the top
-        spawnClustersInRegion(topCount, 100f, screenHeight * 0.8f)
+        // 20% centered at the start (no eggs in the very first top part)
+        spawnClustersInRegion(topCount, screenHeight * 0.4f, screenHeight * 0.9f)
 
         // 80% distributed through the rest
-        spawnClustersInRegion(restCount, screenHeight * 0.8f, worldHeight - 600f)
+        spawnClustersInRegion(restCount, screenHeight * 1.1f, worldHeight - 600f)
     }
 
     private fun spawnClustersInRegion(count: Int, minY: Float, maxY: Float) {
@@ -360,7 +367,7 @@ class GameEngine @Inject constructor(private val soundManager: SoundManager) {
         if (_gameState.value.status != GameStatus.PLAYING) return
 
         // Auto-scroll camera
-        if (cameraY < worldHeight - screenHeight + 200f) {
+        if (cameraY < worldHeight - screenHeight) {
             cameraY += scrollSpeed
         }
 
@@ -492,21 +499,49 @@ class GameEngine @Inject constructor(private val soundManager: SoundManager) {
 
             if (egg.isActive && basketRect.contains(egg.x, egg.y)) {
                 egg.isActive = false
-                score++
+                _gameState.value =
+                        _gameState.value.copy(collectedEggs = _gameState.value.collectedEggs + 1)
             }
         }
 
         val activeEggs = movingEggs.filter { it.isActive }
 
-        val newStatus =
-                if (score >= _gameState.value.targetScore) GameStatus.WON else GameStatus.PLAYING
+        val isAtEnd = cameraY >= worldHeight - screenHeight
+        var newStatus = _gameState.value.status
+        var displayCountdown: Int? = null
+
+        if (isAtEnd && !countdownStarted && newStatus == GameStatus.PLAYING) {
+            countdownStarted = true
+            countdownFrames = countdownTotalFrames
+        }
+
+        if (countdownStarted) {
+            if (countdownFrames > 0) {
+                countdownFrames--
+                displayCountdown = (countdownFrames / 60) + 1
+            } else {
+                val collected = _gameState.value.collectedEggs
+                val target = _gameState.value.targetScore
+                newStatus = if (collected >= target) GameStatus.WON else GameStatus.LOST
+            }
+        }
+
+        val currentCollected = _gameState.value.collectedEggs
+        val target = _gameState.value.targetScore
+        val finalScore =
+                if (currentCollected >= target) {
+                    target + (currentCollected - target) * 2
+                } else {
+                    currentCollected
+                }
 
         _gameState.value =
                 _gameState.value.copy(
-                        score = score,
+                        score = finalScore,
                         eggs = activeEggs,
                         status = newStatus,
-                        frameTick = _gameState.value.frameTick + 1
+                        frameTick = _gameState.value.frameTick + 1,
+                        countdownSeconds = displayCountdown
                 )
     }
 
