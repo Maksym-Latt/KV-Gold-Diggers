@@ -25,11 +25,11 @@ class PlayerDataRepository @Inject constructor(@ApplicationContext context: Cont
     private val dataStore = context.playerDataStore
 
     val playerState: Flow<PlayerPreferences> = dataStore.data.map { prefs ->
-        val owned = prefs[OWNED_BASKETS_KEY] ?: setOf(DEFAULT_BASKET_ID)
+        val owned = (prefs[OWNED_BASKETS_KEY] ?: emptySet()) + DEFAULT_BASKET_ID
         PlayerPreferences(
             coins = prefs[COINS_KEY] ?: 0,
             selectedBasketId = prefs[SELECTED_BASKET_KEY] ?: DEFAULT_BASKET_ID,
-            ownedBaskets = owned.ifEmpty { setOf(DEFAULT_BASKET_ID) },
+            ownedBaskets = owned,
             musicEnabled = prefs[MUSIC_ENABLED_KEY] ?: true,
             soundEnabled = prefs[SOUND_ENABLED_KEY] ?: true
         )
@@ -56,15 +56,21 @@ class PlayerDataRepository @Inject constructor(@ApplicationContext context: Cont
 
     suspend fun unlockBasket(type: BasketType): Boolean {
         val price = type.price ?: 0
-        if (price <= 0) return true
         val currentPrefs = dataStore.data.first()
-        val alreadyOwned = (currentPrefs[OWNED_BASKETS_KEY] ?: emptySet()).contains(type.id)
+        val ownedWithDefault = (currentPrefs[OWNED_BASKETS_KEY] ?: emptySet()) + DEFAULT_BASKET_ID
+        val alreadyOwned = ownedWithDefault.contains(type.id)
+        if (price <= 0) {
+            dataStore.edit { prefs ->
+                prefs[OWNED_BASKETS_KEY] = ownedWithDefault + type.id
+            }
+            return true
+        }
         if (alreadyOwned) return true
         var unlocked = false
         val success = spendCoins(price)
         if (success) {
             dataStore.edit { prefs ->
-                val owned = prefs[OWNED_BASKETS_KEY] ?: emptySet()
+                val owned = (prefs[OWNED_BASKETS_KEY] ?: emptySet()) + DEFAULT_BASKET_ID
                 prefs[OWNED_BASKETS_KEY] = owned + type.id
             }
             unlocked = true
@@ -74,7 +80,7 @@ class PlayerDataRepository @Inject constructor(@ApplicationContext context: Cont
 
     suspend fun selectBasket(type: BasketType) {
         dataStore.edit { prefs ->
-            val owned = prefs[OWNED_BASKETS_KEY] ?: setOf(DEFAULT_BASKET_ID)
+            val owned = (prefs[OWNED_BASKETS_KEY] ?: emptySet()) + DEFAULT_BASKET_ID
             if (type.id in owned) {
                 prefs[SELECTED_BASKET_KEY] = type.id
             }

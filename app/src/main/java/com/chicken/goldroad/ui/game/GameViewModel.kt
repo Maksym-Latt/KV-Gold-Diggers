@@ -39,7 +39,8 @@ class GameViewModel @Inject constructor(val gameEngine: GameEngine) : ViewModel(
             playerPreferences: PlayerPreferences,
             width: Int,
             height: Int,
-            next: Boolean = false
+            next: Boolean = false,
+            startPaused: Boolean = true
     ) {
         viewModelScope.launch(kotlinx.coroutines.Dispatchers.IO) {
             _isLoading.value = true
@@ -62,7 +63,11 @@ class GameViewModel @Inject constructor(val gameEngine: GameEngine) : ViewModel(
             val currentLevel = gameEngine.gameState.value.level
             val targetLevel = if (next) currentLevel + 1 else currentLevel
             gameEngine.initLevel(width, height, targetLevel, _assets.value?.bgGroundBitmaps ?: emptyList())
-            gameEngine.pause()
+            if (startPaused) {
+                gameEngine.pause()
+            } else {
+                gameEngine.resume()
+            }
             
             _isLoading.value = false
             startGameLoop()
