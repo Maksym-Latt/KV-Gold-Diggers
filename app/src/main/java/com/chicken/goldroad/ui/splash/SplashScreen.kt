@@ -13,11 +13,16 @@ import androidx.compose.foundation.layout.safeDrawing
 import androidx.compose.foundation.layout.windowInsetsPadding
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableIntStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.res.painterResource
+import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.chicken.goldroad.R
@@ -32,51 +37,59 @@ fun SplashScreen(onFinished: () -> Unit) {
         onFinished()
     }
 
-    Box(modifier = Modifier.fillMaxSize().background(Color(0xFF3E2723))) {
+    val baseText = "Loading"
+    var dotsCount by remember { mutableIntStateOf(1) }
+
+    LaunchedEffect(Unit) {
+        while (true) {
+            delay(400)
+            dotsCount = (dotsCount % 3) + 1
+        }
+    }
+
+    val loadingText = remember(dotsCount) {
+        baseText + ".".repeat(dotsCount)
+    }
+
+    Box(
+        modifier = Modifier
+            .fillMaxSize()
+            .background(Color(0xFF3E2723))
+    ) {
         Image(
-                painter = painterResource(id = R.drawable.bg),
-                contentDescription = null,
-                contentScale = ContentScale.Crop,
-                modifier = Modifier.fillMaxSize()
+            painter = painterResource(id = R.drawable.bg),
+            contentDescription = null,
+            contentScale = ContentScale.Crop,
+            modifier = Modifier.fillMaxSize()
         )
 
         Box(modifier = Modifier.fillMaxSize()) {
-            Image(
-                    painter = painterResource(id = R.drawable.menu_chicken),
-                    contentDescription = null,
-                    contentScale = ContentScale.Crop,
-                    modifier =
-                            Modifier.align(Alignment.BottomStart)
-                                    .padding(start = 10.dp, bottom = 200.dp)
-                                    .fillMaxWidth(0.56f)
-            )
 
             Image(
-                    painter = painterResource(id = R.drawable.menu_basket),
-                    contentDescription = null,
-                    contentScale = ContentScale.Crop,
-                    modifier =
-                            Modifier.align(Alignment.BottomEnd)
-                                    .padding(end = 12.dp, bottom = 200.dp)
-                                    .fillMaxWidth(0.32f)
+                painter = painterResource(id = R.drawable.menu_chicken),
+                contentDescription = null,
+                contentScale = ContentScale.Crop,
+                modifier = Modifier
+                    .align(Alignment.Center)
+                    .fillMaxWidth(0.70f)
             )
-        }
 
-        Column(
-                modifier =
-                        Modifier.fillMaxSize()
-                                .windowInsetsPadding(WindowInsets.safeDrawing)
-                                .padding(horizontal = 20.dp),
+            Column(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .windowInsetsPadding(WindowInsets.safeDrawing)
+                    .padding(horizontal = 20.dp),
                 horizontalAlignment = Alignment.CenterHorizontally
-        ) {
-            Spacer(modifier = Modifier.weight(0.22f))
-            SprayText(text = "Chicken Gold Diggers Road", fontSize = 44.sp)
+            ) {
+                Spacer(modifier = Modifier.weight(6f))
 
-            Spacer(modifier = Modifier.weight(0.58f))
+                SprayText(
+                    text = loadingText,
+                    fontSize = 38.sp,
+                )
 
-            StrokedText(text = "EGG FLOW DIGGER", modifier = Modifier.padding(bottom = 42.dp))
-
-            Spacer(modifier = Modifier.weight(0.20f))
+                Spacer(modifier = Modifier.weight(1f))
+            }
         }
     }
 }
