@@ -24,8 +24,11 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.painter.Painter
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
 import com.chicken.goldroad.R
+import com.chicken.goldroad.ui.components.SprayText
 import com.chicken.goldroad.ui.components.StrokedText
+import com.chicken.goldroad.ui.components.WideActionButton
 
 @Composable
 fun SettingsOverlay(
@@ -47,25 +50,16 @@ fun SettingsOverlay(
         Column(
             modifier = Modifier
                 .fillMaxWidth(0.8f)
-                .background(Color(0xFFFFE082), RoundedCornerShape(24.dp))
+                .background(Color(0xffffbd43), RoundedCornerShape(24.dp))
                 .padding(24.dp),
             horizontalAlignment = Alignment.CenterHorizontally,
             verticalArrangement = Arrangement.spacedBy(16.dp)
         ) {
-            Row(
+            Box(
                 modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.SpaceBetween,
-                verticalAlignment = Alignment.CenterVertically
+                contentAlignment = Alignment.Center
             ) {
-                StrokedText(text = title, color = Color(0xFF1F4E22), strokeColor = Color.White)
-                Icon(
-                    imageVector = Icons.Default.Close,
-                    contentDescription = null,
-                    tint = Color(0xFF1F4E22),
-                    modifier = Modifier
-                        .size(32.dp)
-                        .clickable { onClose() }
-                )
+                SprayText(text = title)
             }
             SettingRow(
                 label = "Sound",
@@ -81,12 +75,18 @@ fun SettingsOverlay(
                 onToggle = onToggleMusic,
                 indicator = Icons.Default.MusicNote
             )
+
+            WideActionButton(
+                text = "Close",
+                background = painterResource(id = R.drawable.btn_bg_red),
+                onClick = onClose
+            )
         }
     }
 }
 
 @Composable
-private fun SettingRow(
+fun SettingRow(
     label: String,
     icon: Painter,
     enabled: Boolean,
@@ -98,7 +98,7 @@ private fun SettingRow(
         horizontalArrangement = Arrangement.SpaceBetween,
         verticalAlignment = Alignment.CenterVertically
     ) {
-        StrokedText(text = label, color = Color(0xFF1F4E22), strokeColor = Color.White)
+        StrokedText(text = label, color = Color(0xffffffff), strokeColor = Color(0xFF1F4E22),fontSize = 32.sp)
         Box(contentAlignment = Alignment.Center) {
             Image(painter = icon, contentDescription = null, modifier = Modifier
                 .size(56.dp)

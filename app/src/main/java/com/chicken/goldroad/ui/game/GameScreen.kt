@@ -3,6 +3,7 @@ package com.chicken.goldroad.ui.game
 import android.graphics.BitmapFactory
 import android.graphics.RectF
 import androidx.compose.foundation.Canvas
+import androidx.compose.foundation.Image
 import androidx.compose.foundation.gestures.detectDragGestures
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Row
@@ -115,7 +116,8 @@ fun GameScreen(
     Box(modifier = Modifier.fillMaxSize()) {
         Canvas(
             modifier =
-            Modifier.fillMaxSize()
+            Modifier
+                .fillMaxSize()
                 .onSizeChanged {
                     if (screenSize == null) {
                         screenSize = it.width to it.height
@@ -135,10 +137,10 @@ fun GameScreen(
                             change.position - dragAmount + Offset(0f, cameraY)
                         val end =
                             change.position +
-                                androidx.compose.ui.geometry.Offset(
-                                    0f,
-                                    cameraY
-                                )
+                                    Offset(
+                                        0f,
+                                        cameraY
+                                    )
                         viewModel.gameEngine.dig(start, end)
                     }
                 }
@@ -216,7 +218,8 @@ fun GameScreen(
                 onHome = {
                     viewModel.resumeGame()
                     onBack()
-                }
+                },
+                onRestart = {  },
             )
         }
 
@@ -282,7 +285,7 @@ private fun TopHud(score: Int, target: Int, coins: Int, onPause: () -> Unit) {
                     horizontalArrangement = Arrangement.spacedBy(8.dp),
                     verticalAlignment = Alignment.CenterVertically
                 ) {
-                    androidx.compose.foundation.Image(
+                    Image(
                         painter = painterResource(id = R.drawable.egg_1),
                         contentDescription = null,
                         modifier = Modifier.size(24.dp)
