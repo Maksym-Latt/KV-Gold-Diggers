@@ -404,7 +404,7 @@ fun HoneyOverlay(expansion: Float, wavePhase: Float) {
 
             var currentX = width
             drips.forEachIndexed { i, (wRatio, dMult) ->
-                val waveSegmentWidth = widцth * wRatio
+                val waveSegmentWidth = width * wRatio
                 val targetX = currentX - waveSegmentWidth
 
                 if (expansion < 0.95f) {
