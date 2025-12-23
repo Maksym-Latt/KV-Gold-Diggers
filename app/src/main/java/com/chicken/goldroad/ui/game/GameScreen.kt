@@ -55,6 +55,7 @@ import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.compose.LifecycleEventEffect
 import com.chicken.goldroad.R
 import com.chicken.goldroad.data.PlayerPreferences
+import com.chicken.goldroad.domain.GameEngine
 import com.chicken.goldroad.domain.GameStatus
 import com.chicken.goldroad.ui.PlayerViewModel
 import com.chicken.goldroad.ui.components.RoundIconButton
@@ -124,6 +125,7 @@ fun GameScreen(
         val status = gameState.status
         if (status == GameStatus.PLAYING) {
             processedStatus = null
+            playerViewModel.stopDiggingSound()
         }
         if (status != processedStatus && (status == GameStatus.WON || status == GameStatus.LOST)) {
             val reward =
@@ -133,6 +135,13 @@ fun GameScreen(
                         max(gameState.score / 2, 8)
                     }
             playerViewModel.addCoins(reward)
+            if (status == GameStatus.WON) {
+                playerViewModel.playWinSound()
+                val nextLevel = (gameState.level + 1).coerceAtMost(GameEngine.MAX_LEVEL)
+                playerViewModel.setCurrentLevel(nextLevel)
+            } else {
+                playerViewModel.playLoseSound()
+            }
             processedStatus = status
         }
     }
@@ -167,7 +176,13 @@ fun GameScreen(
                                             }
                                         }
                                 .pointerInput(Unit) {
-                                    detectDragGestures { change, dragAmount ->
+                                    detectDragGestures(
+                                            onDragStart = {
+                                                playerViewModel.startDiggingSound()
+                                            },
+                                            onDragEnd = { playerViewModel.stopDiggingSound() },
+                                            onDragCancel = { playerViewModel.stopDiggingSound() }
+                                    ) { change, dragAmount ->
                                         change.consume()
                                         val cameraY = viewModel.gameEngine.cameraY
                                         val start =

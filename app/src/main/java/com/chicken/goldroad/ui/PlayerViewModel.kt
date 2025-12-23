@@ -62,6 +62,10 @@ class PlayerViewModel @Inject constructor(
         }
     }
 
+    fun setCurrentLevel(level: Int) {
+        viewModelScope.launch { repository.setCurrentLevel(level) }
+    }
+
     fun playMenuMusic() {
         audioController.playMenuMusic()
     }
@@ -80,5 +84,21 @@ class PlayerViewModel @Inject constructor(
 
     fun playClick() {
         audioController.playClick()
+    }
+
+    fun startDiggingSound() {
+        audioController.startDiggingSound()
+    }
+
+    fun stopDiggingSound() {
+        audioController.stopDiggingSound()
+    }
+
+    fun playWinSound() {
+        audioController.playWinSound()
+    }
+
+    fun playLoseSound() {
+        audioController.playLoseSound()
     }
 }

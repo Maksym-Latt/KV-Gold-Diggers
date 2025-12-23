@@ -5,5 +5,6 @@ data class PlayerPreferences(
     val selectedBasketId: String = "classic",
     val ownedBaskets: Set<String> = setOf("classic"),
     val musicEnabled: Boolean = true,
-    val soundEnabled: Boolean = true
+    val soundEnabled: Boolean = true,
+    val currentLevel: Int = 1
 )

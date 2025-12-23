@@ -60,8 +60,14 @@ class GameViewModel @Inject constructor(val gameEngine: GameEngine) : ViewModel(
             }
 
             // 2. Initialize level
+            val savedLevel = playerPreferences.currentLevel
             val currentLevel = gameEngine.gameState.value.level
-            val targetLevel = if (next) currentLevel + 1 else currentLevel
+            val targetLevel =
+                    if (next) {
+                        (currentLevel + 1).coerceIn(1, com.chicken.goldroad.domain.GameEngine.MAX_LEVEL)
+                    } else {
+                        savedLevel.coerceIn(1, com.chicken.goldroad.domain.GameEngine.MAX_LEVEL)
+                    }
             gameEngine.initLevel(width, height, targetLevel, _assets.value?.bgGroundBitmaps ?: emptyList())
             if (startPaused) {
                 gameEngine.pause()

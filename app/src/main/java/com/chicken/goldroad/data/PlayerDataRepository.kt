@@ -31,7 +31,8 @@ class PlayerDataRepository @Inject constructor(@ApplicationContext context: Cont
             selectedBasketId = prefs[SELECTED_BASKET_KEY] ?: DEFAULT_BASKET_ID,
             ownedBaskets = owned,
             musicEnabled = prefs[MUSIC_ENABLED_KEY] ?: true,
-            soundEnabled = prefs[SOUND_ENABLED_KEY] ?: true
+            soundEnabled = prefs[SOUND_ENABLED_KEY] ?: true,
+            currentLevel = (prefs[CURRENT_LEVEL_KEY] ?: 1).coerceAtLeast(1)
         )
     }
 
@@ -95,6 +96,10 @@ class PlayerDataRepository @Inject constructor(@ApplicationContext context: Cont
         dataStore.edit { prefs -> prefs[SOUND_ENABLED_KEY] = enabled }
     }
 
+    suspend fun setCurrentLevel(level: Int) {
+        dataStore.edit { prefs -> prefs[CURRENT_LEVEL_KEY] = level.coerceAtLeast(1) }
+    }
+
     companion object {
         private const val DEFAULT_BASKET_ID = "classic"
         private val COINS_KEY = intPreferencesKey("coins")
@@ -102,5 +107,6 @@ class PlayerDataRepository @Inject constructor(@ApplicationContext context: Cont
         private val OWNED_BASKETS_KEY = stringSetPreferencesKey("owned_baskets")
         private val MUSIC_ENABLED_KEY = booleanPreferencesKey("music_enabled")
         private val SOUND_ENABLED_KEY = booleanPreferencesKey("sound_enabled")
+        private val CURRENT_LEVEL_KEY = intPreferencesKey("current_level")
     }
 }

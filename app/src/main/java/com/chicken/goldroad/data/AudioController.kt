@@ -17,6 +17,7 @@ class AudioController @Inject constructor(
     private var currentTrack: Int? = null
     private var musicEnabled: Boolean = true
     private var soundEnabled: Boolean = true
+    private var diggingActive = false
 
     fun applyToggles(musicOn: Boolean, soundOn: Boolean) {
         setMusicEnabled(musicOn)
@@ -53,17 +54,41 @@ class AudioController @Inject constructor(
     fun setSoundEnabled(enabled: Boolean) {
         soundEnabled = enabled
         soundManager.setMuted(!enabled)
+        if (!enabled) {
+            stopDiggingSound()
+        }
     }
 
     fun playClick() {
         if (!soundEnabled) return
-        soundManager.loadSound(R.raw.sfx_digging_repeat_sound)
         soundManager.playSound(R.raw.sfx_digging_repeat_sound)
+    }
+
+    fun startDiggingSound() {
+        if (!soundEnabled || diggingActive) return
+        diggingActive = true
+        soundManager.playLooping(R.raw.sfx_digging_repeat_sound)
+    }
+
+    fun stopDiggingSound() {
+        diggingActive = false
+        soundManager.stopLooping(R.raw.sfx_digging_repeat_sound)
+    }
+
+    fun playWinSound() {
+        if (!soundEnabled) return
+        soundManager.playSound(R.raw.sfx_win)
+    }
+
+    fun playLoseSound() {
+        if (!soundEnabled) return
+        soundManager.playSound(R.raw.sfx_lose)
     }
 
     fun release() {
         musicPlayer?.release()
         musicPlayer = null
+        soundManager.stopLooping(R.raw.sfx_digging_repeat_sound)
     }
 
     private fun playMusic(@RawRes track: Int) {

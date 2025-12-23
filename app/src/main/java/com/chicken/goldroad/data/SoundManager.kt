@@ -13,6 +13,7 @@ class SoundManager @Inject constructor(
 ) {
     private val soundPool: SoundPool
     private val soundMap = mutableMapOf<Int, Int>()
+    private val loopingStreams = mutableMapOf<Int, Int>()
     private var isMuted = false
 
     init {
@@ -27,20 +28,40 @@ class SoundManager @Inject constructor(
             .build()
     }
 
-    fun loadSound(resId: Int) {
+    private fun loadSound(resId: Int) {
         if (!soundMap.containsKey(resId)) {
             soundMap[resId] = soundPool.load(context, resId, 1)
         }
     }
 
     fun playSound(resId: Int) {
-        if (isMuted) return
-        val soundId = soundMap[resId] ?: return
-        soundPool.play(soundId, 1f, 1f, 1, 0, 1f)
+        playSoundInternal(resId, loop = 0)
+    }
+
+    fun playLooping(resId: Int) {
+        val streamId = playSoundInternal(resId, loop = -1)
+        if (streamId != 0) {
+            loopingStreams[resId] = streamId
+        }
+    }
+
+    fun stopLooping(resId: Int) {
+        loopingStreams.remove(resId)?.let { soundPool.stop(it) }
+    }
+
+    private fun playSoundInternal(resId: Int, loop: Int): Int {
+        if (isMuted) return 0
+        loadSound(resId)
+        val soundId = soundMap[resId] ?: return 0
+        return soundPool.play(soundId, 1f, 1f, 1, loop, 1f)
     }
 
     fun setMuted(muted: Boolean) {
         isMuted = muted
+        if (muted) {
+            loopingStreams.values.forEach { soundPool.stop(it) }
+            loopingStreams.clear()
+        }
     }
 
     fun pauseForLifecycle() {

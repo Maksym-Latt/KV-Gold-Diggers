@@ -62,6 +62,13 @@ data class GameState(
 
 @Singleton
 class GameEngine @Inject constructor(private val soundManager: SoundManager) {
+    companion object {
+        const val BASE_TARGET = 20
+        const val EGGS_PER_LEVEL = 10
+        const val MAX_TARGET_EGGS = 100
+        const val MAX_LEVEL = (MAX_TARGET_EGGS - BASE_TARGET) / EGGS_PER_LEVEL
+    }
+
     private val _gameState = MutableStateFlow(GameState())
     val gameState: StateFlow<GameState> = _gameState.asStateFlow()
 
@@ -187,7 +194,8 @@ class GameEngine @Inject constructor(private val soundManager: SoundManager) {
         countdownStarted = false
         countdownFrames = 0
 
-        val targetScore = 20 + (level * 10)
+        val normalizedLevel = level.coerceIn(1, MAX_LEVEL)
+        val targetScore = (BASE_TARGET + (normalizedLevel * EGGS_PER_LEVEL)).coerceAtMost(MAX_TARGET_EGGS)
         val totalEggs = targetScore * 2
 
         // Initialize chunks
@@ -244,7 +252,7 @@ class GameEngine @Inject constructor(private val soundManager: SoundManager) {
         obstacles.clear()
         // generateObstacles(level, width, height)
 
-        _gameState.value = GameState(level = level, score = 0, targetScore = targetScore)
+        _gameState.value = GameState(level = normalizedLevel, score = 0, targetScore = targetScore)
     }
 
     private fun spawnEggs(totalCount: Int) {
@@ -500,7 +508,12 @@ class GameEngine @Inject constructor(private val soundManager: SoundManager) {
             if (egg.isActive && basketRect.contains(egg.x, egg.y)) {
                 egg.isActive = false
                 _gameState.value =
-                        _gameState.value.copy(collectedEggs = _gameState.value.collectedEggs + 1)
+                        _gameState.value.copy(
+                                collectedEggs =
+                                        (_gameState.value.collectedEggs + 1).coerceAtMost(
+                                                MAX_TARGET_EGGS
+                                        )
+                        )
             }
         }
 
