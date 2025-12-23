@@ -35,6 +35,7 @@ import androidx.compose.ui.graphics.vector.rememberVectorPainter
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
 import com.chicken.goldroad.R
 import com.chicken.goldroad.data.PlayerPreferences
 import com.chicken.goldroad.domain.model.BasketType
@@ -122,7 +123,8 @@ fun MenuScreen(
 
             SprayText(
                 text = "Chicken Gold Diggers Road",
-                modifier = Modifier
+                modifier = Modifier,
+                fontSize = 52.sp
             )
 
             Spacer(modifier = Modifier.weight(0.42f))

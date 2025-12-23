@@ -2,6 +2,7 @@ package com.chicken.goldroad.ui.game
 
 import android.graphics.BitmapFactory
 import android.graphics.RectF
+import androidx.activity.compose.BackHandler
 import androidx.compose.animation.core.LinearEasing
 import androidx.compose.animation.core.RepeatMode
 import androidx.compose.animation.core.animateFloat
@@ -10,6 +11,7 @@ import androidx.compose.animation.core.infiniteRepeatable
 import androidx.compose.animation.core.rememberInfiniteTransition
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.Canvas
+import androidx.compose.foundation.background
 import androidx.compose.foundation.gestures.detectDragGestures
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -47,6 +49,8 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.hilt.navigation.compose.hiltViewModel
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.compose.LifecycleEventEffect
 import com.chicken.goldroad.R
 import com.chicken.goldroad.data.PlayerPreferences
 import com.chicken.goldroad.domain.GameStatus
@@ -73,6 +77,18 @@ fun GameScreen(
     val context = LocalContext.current
 
     LaunchedEffect(Unit) { playerViewModel.playGameMusic() }
+
+    BackHandler(enabled = gameState.status == GameStatus.PLAYING) {
+        viewModel.pauseGame()
+        playerViewModel.pauseAudio()
+    }
+
+    LifecycleEventEffect(Lifecycle.Event.ON_PAUSE) {
+        if (gameState.status == GameStatus.PLAYING) {
+            viewModel.pauseGame()
+            playerViewModel.pauseAudio()
+        }
+    }
 
     val selectedBasket = BasketType.fromId(playerPreferences.selectedBasketId)
 
@@ -163,7 +179,7 @@ fun GameScreen(
                     label = "honeyExpansion"
             )
 
-    Box(modifier = Modifier.fillMaxSize()) {
+    Box(modifier = Modifier.fillMaxSize().background(Color(0xFF3E2723))) {
         Canvas(
                 modifier =
                         Modifier.fillMaxSize()
@@ -298,7 +314,6 @@ fun GameScreen(
                     outerGradient = listOf(Color(0xFF7EDB6C), Color(0xFFECCF2A)),
                     panelColor = Color(0xFFE7B735),
                     characterImage = R.drawable.chicken_win,
-                    basketImage = selectedBasket.imageRes,
                     onPrimary = {
                         screenSize?.let {
                             viewModel.startLevel(it.first, it.second, bgGroundBitmaps, next = true)
@@ -315,7 +330,6 @@ fun GameScreen(
                     outerGradient = listOf(Color(0xFFF1A43D), Color(0xFFDE7A22)),
                     panelColor = Color(0xFFEEB038),
                     characterImage = R.drawable.chicken_lose,
-                    basketImage = selectedBasket.imageRes,
                     onPrimary = {
                         screenSize?.let {
                             viewModel.startLevel(it.first, it.second, bgGroundBitmaps, next = false)
@@ -407,7 +421,7 @@ fun HoneyOverlay(expansion: Float, wavePhase: Float) {
                 val waveSegmentWidth = width * wRatio
                 val targetX = currentX - waveSegmentWidth
 
-                if (expansion < 0.95f) {
+                if (expansion < 0.99f) {
                     val phaseOffset = i * 0.7f
                     val waveDepth =
                             (30.dp.toPx() * dMult) +
