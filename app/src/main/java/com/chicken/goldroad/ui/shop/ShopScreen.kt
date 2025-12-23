@@ -69,6 +69,20 @@ fun ShopScreen(
             modifier = Modifier.fillMaxSize()
         )
 
+        Box(
+            modifier = Modifier
+                .fillMaxSize()
+                .background(
+                    Brush.verticalGradient(
+                        listOf(
+                            Color(0x8088d86f),
+                            Color(0x80f9e07f)
+                        )
+                    )
+                )
+        )
+
+
         Column(
             modifier = Modifier
                 .fillMaxSize()
@@ -157,7 +171,7 @@ private fun BasketCardLikeScreenshot(
             modifier = Modifier
                 .fillMaxWidth()
                 .clip(RoundedCornerShape(18.dp))
-                .background(Color(0xFFFFC85A))
+                .background(Color(0xffd39519))
                 .padding(bottom = 42.dp),
             horizontalAlignment = Alignment.CenterHorizontally
         ) {
@@ -168,7 +182,7 @@ private fun BasketCardLikeScreenshot(
                     .fillMaxWidth()
                     .padding(horizontal = 12.dp)
                     .clip(RoundedCornerShape(12.dp))
-                    .background(Color(0xFFE8A43A))
+                    .background(Color(0xffebb236))
                     .padding(vertical = 8.dp),
                 contentAlignment = Alignment.Center
             ) {

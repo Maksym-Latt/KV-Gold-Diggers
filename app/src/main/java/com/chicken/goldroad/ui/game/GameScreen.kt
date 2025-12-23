@@ -12,7 +12,10 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.safeDrawing
+import androidx.compose.foundation.layout.windowInsetsPadding
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Pause
@@ -227,8 +230,10 @@ fun GameScreen(
             ResultOverlay(
                 title = "Perfect Flow!",
                 rewardText = "+${max(gameState.score, gameState.targetScore / 2)}",
-                backgroundColor = Color(0xFFECCF2A),
-                centerImage = selectedBasket.imageRes,
+                outerGradient = listOf(Color(0xFF7EDB6C), Color(0xFFECCF2A)),
+                panelColor = Color(0xFFE7B735),
+                characterImage = R.drawable.chicken_win,
+                basketImage = selectedBasket.imageRes,
                 onPrimary = {
                     screenSize?.let {
                         viewModel.startLevel(it.first, it.second, bgGroundBitmaps, next = true)
@@ -242,8 +247,10 @@ fun GameScreen(
             ResultOverlay(
                 title = "Not this time!",
                 rewardText = "+${max(gameState.score / 2, 8)}",
-                backgroundColor = Color(0xFFFFB74D),
-                centerImage = selectedBasket.imageRes,
+                outerGradient = listOf(Color(0xFFF1A43D), Color(0xFFDE7A22)),
+                panelColor = Color(0xFFEEB038),
+                characterImage = R.drawable.chicken_lose,
+                basketImage = selectedBasket.imageRes,
                 onPrimary = {
                     screenSize?.let {
                         viewModel.startLevel(it.first, it.second, bgGroundBitmaps, next = false)
@@ -262,7 +269,7 @@ private fun TopHud(score: Int, target: Int, coins: Int, onPause: () -> Unit) {
     Row(
         modifier = Modifier
             .fillMaxWidth()
-            .padding(16.dp),
+            .padding(16.dp).windowInsetsPadding(WindowInsets.safeDrawing),
         horizontalArrangement = Arrangement.SpaceBetween,
         verticalAlignment = Alignment.CenterVertically
     ) {
@@ -276,23 +283,6 @@ private fun TopHud(score: Int, target: Int, coins: Int, onPause: () -> Unit) {
             }
         }
         Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-            Surface(
-                color = Color(0xFF2C7433),
-                shape = RoundedCornerShape(50)
-            ) {
-                Row(
-                    modifier = Modifier.padding(horizontal = 14.dp, vertical = 8.dp),
-                    horizontalArrangement = Arrangement.spacedBy(8.dp),
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
-                    Image(
-                        painter = painterResource(id = R.drawable.egg_1),
-                        contentDescription = null,
-                        modifier = Modifier.size(24.dp)
-                    )
-                    StrokedText(text = coins.toString(), color = Color.White, strokeColor = Color.Black, strokeWidth = 4f, fontSize = 16.sp)
-                }
-            }
             RoundIconButton(
                 icon = rememberVectorPainter(Icons.Default.Pause),
                 modifier = Modifier.size(56.dp),

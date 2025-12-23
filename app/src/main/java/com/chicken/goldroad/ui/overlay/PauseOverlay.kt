@@ -88,15 +88,8 @@ fun PauseOverlay(
             )
 
             WideActionButton(
-                text = "Restart",
+                text = "Home",
                 background = painterResource(id = R.drawable.btn_bg_red),
-                onClick = onRestart
-            )
-
-            WideActionButton(
-                text = "Menu",
-                icon = rememberVectorPainter(image = Icons.Default.Home),
-                background = painterResource(id = R.drawable.btn_bg_green),
                 onClick = onHome
             )
         }
